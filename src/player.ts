@@ -9,6 +9,8 @@ export type PlayerOptions = {
   container: HTMLElement;
   id: string;
   src: string;
+  /** Browser-compatible MP4 or HLS URL produced from an MKV source. Required for MKV on browsers without Matroska support. */
+  fallbackSrc?: string;
   title?: string;
   poster?: string;
   watermark?: { text: string; enabled?: boolean };
@@ -19,6 +21,13 @@ export type PlayerOptions = {
 };
 
 type PlaybackPreferences = { speed: number; volume: number; muted: boolean };
+type AppleVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+  webkitExitFullscreen?: () => void;
+  webkitDisplayingFullscreen?: boolean;
+};
+type NativeAudioTrack = { language?: string; label?: string; enabled: boolean };
+type NativeAudioTracks = { length: number; [index: number]: NativeAudioTrack; addEventListener?: (event: string, cb: () => void) => void };
 
 const PROGRESS_PREFIX = 'securestream:progress:';
 const PREFERENCES_KEY = 'securestream:preferences:v1';
@@ -70,6 +79,13 @@ export class SecureStreamPlayer {
   private mediaRetries = 0;
   private lastSavedSecond = -1;
   private restored = false;
+  private nativeFullscreenControls = false;
+  private readonly onNativeFullscreenEnd = (): void => {
+    if (this.nativeFullscreenControls) {
+      this.video.controls = false;
+      this.nativeFullscreenControls = false;
+    }
+  };
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     const element = event.target as HTMLElement;
     if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(element.tagName)) return;
@@ -203,6 +219,9 @@ export class SecureStreamPlayer {
     this.muteButton = get<HTMLButtonElement>('[data-action="mute"]');
 
     this.video.controls = false;
+    this.video.playsInline = true;
+    this.video.setAttribute('webkit-playsinline', '');
+    this.video.addEventListener('webkitendfullscreen', this.onNativeFullscreenEnd);
     this.video.muted = Boolean(options.muted);
     if (options.poster) this.video.poster = options.poster;
     if (options.watermark?.text) {
@@ -247,6 +266,7 @@ export class SecureStreamPlayer {
     this.video.addEventListener('loadedmetadata', () => {
       this.restorePosition();
       this.refreshCaptions();
+      this.refreshAudio();
       this.updateProgress();
     });
     this.video.addEventListener('timeupdate', () => {
@@ -283,8 +303,14 @@ export class SecureStreamPlayer {
       this.showNotice(this.quality.selectedOptions[0]?.textContent || 'Quality updated');
     });
     this.audio.addEventListener('change', () => {
-      if (!this.hls || this.audio.value === '-1') return;
-      this.hls.audioTrack = Number(this.audio.value);
+      if (this.audio.value === '-1') return;
+      if (this.hls) {
+        this.hls.audioTrack = Number(this.audio.value);
+      } else {
+        const tracks = this.nativeAudioTracks();
+        if (!tracks) return;
+        for (let i = 0; i < tracks.length; i++) tracks[i].enabled = i === Number(this.audio.value);
+      }
       this.showNotice('Audio: ' + (this.audio.selectedOptions[0]?.textContent || 'Selected'));
       if (!this.quickAudio.hidden) this.renderQuickMenu('audio');
     });
@@ -358,7 +384,7 @@ export class SecureStreamPlayer {
       button.className = 'ssp-quick-option';
       button.textContent = option.textContent;
       const selected = type === 'audio'
-        ? option.value === String(this.hls?.audioTrack)
+        ? option.value === String(this.hls ? this.hls.audioTrack : this.activeNativeAudioTrack())
         : option.value === select.value;
       button.setAttribute('aria-pressed', String(selected));
       button.addEventListener('click', () => {
@@ -371,7 +397,15 @@ export class SecureStreamPlayer {
   }
 
   private loadSource(): void {
-    const isHls = /\.m3u8($|\?)/i.test(this.options.src);
+    // Matroska is an upload/container format, not a portable HTML5 browser delivery format.
+    // Prefer the specifically provided web-compatible rendition rather than guessing a signed URL.
+    const isMkv = /\.mkv(?:$|[?#])/i.test(this.options.src);
+    const source = isMkv ? this.options.fallbackSrc : this.options.src;
+    if (!source || /\.mkv(?:$|[?#])/i.test(source)) {
+      this.showNotice('MKV needs a browser-compatible MP4 or HLS rendition. Convert/remux the MKV and supply fallbackSrc.');
+      return;
+    }
+    const isHls = /\.m3u8(?:$|[?#])/i.test(source);
     if (isHls && Hls.isSupported()) {
       this.hls = new Hls({
         enableWorker: true,
@@ -379,7 +413,7 @@ export class SecureStreamPlayer {
         maxBufferLength: 30,
         capLevelToPlayerSize: true,
       });
-      this.hls.on(Hls.Events.MEDIA_ATTACHED, () => this.hls?.loadSource(this.options.src));
+      this.hls.on(Hls.Events.MEDIA_ATTACHED, () => this.hls?.loadSource(source));
       this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
         this.updateLevels();
         this.refreshAudio();
@@ -411,7 +445,7 @@ export class SecureStreamPlayer {
       });
       this.hls.attachMedia(this.video);
     } else {
-      this.video.src = this.options.src;
+      this.video.src = source;
       if (this.options.autoPlay) {
         this.video.addEventListener('loadedmetadata', () => { void this.tryPlay(); }, { once: true });
       }
@@ -445,16 +479,36 @@ export class SecureStreamPlayer {
     return name || fallback;
   }
 
+  private nativeAudioTracks(): NativeAudioTracks | undefined {
+    return (this.video as HTMLVideoElement & { audioTracks?: NativeAudioTracks }).audioTracks;
+  }
+
+  private activeNativeAudioTrack(): number {
+    const tracks = this.nativeAudioTracks();
+    if (!tracks) return -1;
+    for (let i = 0; i < tracks.length; i++) if (tracks[i].enabled) return i;
+    return -1;
+  }
+
   private refreshAudio(): void {
-    if (!this.hls) return;
     const previous = this.audio.value;
     this.audio.replaceChildren(new Option('Default', '-1'));
-    this.hls.audioTracks.forEach((track, index) => {
-      this.audio.add(new Option(this.trackLabel(track.name, track.lang, 'Track ' + (index + 1)), String(index)));
-    });
-    this.audio.disabled = this.hls.audioTracks.length < 2;
-    // Reflect the track actually active in hls.js, including auto/default selection.
-    const active = String(this.hls.audioTrack);
+    if (this.hls) {
+      this.hls.audioTracks.forEach((track, index) => {
+        this.audio.add(new Option(this.trackLabel(track.name, track.lang, 'Track ' + (index + 1)), String(index)));
+      });
+      this.audio.disabled = this.hls.audioTracks.length < 2;
+    } else {
+      const tracks = this.nativeAudioTracks();
+      if (tracks) {
+        for (let i = 0; i < tracks.length; i++) {
+          const track = tracks[i];
+          this.audio.add(new Option(this.trackLabel(track.label, track.language, 'Track ' + (i + 1)), String(i)));
+        }
+      }
+      this.audio.disabled = !tracks || tracks.length < 2;
+    }
+    const active = String(this.hls ? this.hls.audioTrack : this.activeNativeAudioTrack());
     this.audio.value = [...this.audio.options].some(option => option.value === active) ? active : previous;
     if (this.audio.selectedIndex < 0) this.audio.value = '-1';
     if (!this.quickAudio.hidden) this.renderQuickMenu('audio');
@@ -638,8 +692,47 @@ export class SecureStreamPlayer {
     this.showNotice(enabled ? 'Watermark enabled' : 'Watermark disabled');
   }
   public async toggleFullscreen(): Promise<void> {
-    if (document.fullscreenElement === this.root) await document.exitFullscreen();
-    else if (this.root.requestFullscreen) await this.root.requestFullscreen();
+    const appleVideo = this.video as AppleVideo;
+    try {
+      if (document.fullscreenElement === this.root) {
+        await document.exitFullscreen();
+        return;
+      }
+      if (appleVideo.webkitDisplayingFullscreen) {
+        appleVideo.webkitExitFullscreen?.();
+        return;
+      }
+      // iPhone Safari AND Chrome use WebKit. Request fullscreen on the VIDEO, not the player section.
+      // Call synchronously inside the click gesture; trying/requesting rejected promises first can lose it.
+      const isiPhone = /iPhone|iPod/i.test(navigator.userAgent);
+      if (isiPhone && appleVideo.webkitEnterFullscreen) {
+        this.enterNativeVideoFullscreen(appleVideo);
+        return;
+      }
+      if (this.root.requestFullscreen && document.fullscreenEnabled !== false) {
+        try {
+          await this.root.requestFullscreen();
+          return;
+        } catch {
+          // iPad/older WebKit can reject container fullscreen; native video is the fallback.
+        }
+      }
+      if (appleVideo.webkitEnterFullscreen) {
+        this.enterNativeVideoFullscreen(appleVideo);
+        return;
+      }
+      this.showNotice('Fullscreen is unavailable on this device.');
+    } catch {
+      this.onNativeFullscreenEnd();
+      this.showNotice('Fullscreen could not start. Play the video and try again.');
+    }
+  }
+
+  private enterNativeVideoFullscreen(video: AppleVideo): void {
+    // Native iPhone fullscreen owns its controls; restore custom inline controls on exit.
+    this.video.controls = true;
+    this.nativeFullscreenControls = true;
+    video.webkitEnterFullscreen?.();
   }
   public async togglePictureInPicture(): Promise<void> {
     try {
@@ -654,6 +747,7 @@ export class SecureStreamPlayer {
       this.storageSet(PROGRESS_PREFIX + this.options.id, String(Math.floor(this.video.currentTime)));
     }
     this.root.removeEventListener('keydown', this.onKeyDown);
+    this.video.removeEventListener('webkitendfullscreen', this.onNativeFullscreenEnd);
     this.hls?.destroy();
     this.video.pause();
     this.video.removeAttribute('src');

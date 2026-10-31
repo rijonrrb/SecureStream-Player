@@ -201,4 +201,67 @@ describe('SecureStreamPlayer', () => {
     expect(toggle.checked).toBe(false);
   });
 
+
+  it('does not attempt unplayable raw MKV without a browser-compatible rendition', () => {
+    player = new SecureStreamPlayer({ container: host, id:'raw-mkv', src:'https://cdn.example.org/sample.mkv?signature=123' });
+    expect(host.querySelector('video')?.getAttribute('src')).toBeNull();
+    expect(host.querySelector('.ssp-notice')?.textContent).toContain('MKV needs a browser-compatible');
+  });
+
+  it('plays a supplied compatible MP4 fallback for an MKV original', () => {
+    player = new SecureStreamPlayer({
+      container:host, id:'mkv-fallback', src:'https://cdn.example.org/original.mkv',
+      fallbackSrc:'https://cdn.example.org/converted.mp4?token=abc',
+    });
+    expect(host.querySelector('video')?.src).toContain('/converted.mp4?token=abc');
+    expect(host.querySelector('video')?.getAttribute('src')).not.toContain('.mkv');
+  });
+
+  it('uses native iPhone WebKit video fullscreen from the click gesture', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0) AppleWebKit/605.1.15');
+    const nativeFullscreen = vi.fn();
+    Object.defineProperty(HTMLVideoElement.prototype, 'webkitEnterFullscreen', { configurable:true, value:nativeFullscreen });
+    player = setup('ios-native');
+    const video = host.querySelector('video')!;
+    const root = host.querySelector<HTMLElement>('.ssp-player')!;
+    const request = vi.fn().mockResolvedValue(undefined);
+    root.requestFullscreen = request;
+    host.querySelector<HTMLButtonElement>('[data-action="fullscreen"]')!.click();
+    expect(nativeFullscreen).toHaveBeenCalledOnce();
+    expect(request).not.toHaveBeenCalled();
+    expect(video.controls).toBe(true);
+    video.dispatchEvent(new Event('webkitendfullscreen'));
+    expect(video.controls).toBe(false);
+    delete (HTMLVideoElement.prototype as HTMLVideoElement & {webkitEnterFullscreen?:()=>void}).webkitEnterFullscreen;
+  });
+
+  it('falls back to WebKit native video fullscreen after failed container request', async () => {
+    vi.spyOn(window.navigator,'userAgent','get').mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X)');
+    const nativeFullscreen = vi.fn();
+    Object.defineProperty(HTMLVideoElement.prototype,'webkitEnterFullscreen',{configurable:true,value:nativeFullscreen});
+    player = setup('fallback-fullscreen');
+    const root = host.querySelector<HTMLElement>('.ssp-player')!;
+    root.requestFullscreen = vi.fn().mockRejectedValue(new Error('unsupported'));
+    await player.toggleFullscreen();
+    expect(nativeFullscreen).toHaveBeenCalledOnce();
+    delete (HTMLVideoElement.prototype as HTMLVideoElement & {webkitEnterFullscreen?:()=>void}).webkitEnterFullscreen;
+  });
+
+  it('switches browser-exposed native MP4 audio tracks independently', () => {
+    const nativeAudio = [
+      { language:'en', label:'English', enabled:true },
+      { language:'bn', label:'Bangla', enabled:false },
+    ];
+    Object.defineProperty(HTMLVideoElement.prototype, 'audioTracks', { configurable:true, get:()=>nativeAudio });
+    player = setup('native-audio');
+    host.querySelector('video')!.dispatchEvent(new Event('loadedmetadata'));
+    const audio = host.querySelector<HTMLSelectElement>('[data-role="audio"]')!;
+    expect(audio.disabled).toBe(false);
+    expect([...audio.options].map(x=>x.textContent)).toEqual(['Default','English','Bangla']);
+    audio.value = '1';audio.dispatchEvent(new Event('change'));
+    expect(nativeAudio[0].enabled).toBe(false);
+    expect(nativeAudio[1].enabled).toBe(true);
+    delete (HTMLVideoElement.prototype as HTMLVideoElement & {audioTracks?:unknown}).audioTracks;
+  });
+
 });
