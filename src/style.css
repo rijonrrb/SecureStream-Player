@@ -95,3 +95,12 @@
 @media(max-width:720px) {
   .ssp-quick-menu,.ssp-quick-menu[data-quick=audio] { top:39px; right:5px; width:min(250px,calc(100% - 10px)); max-height:calc(100% - 49px); }
 }
+
+/* WebKit native fullscreen is used on iPhone; normal platforms fullscreen the whole player. */
+.ssp-player:fullscreen, .ssp-player:-webkit-full-screen { width:100%; height:100%; border:0; }
+.ssp-player:fullscreen .ssp-stage, .ssp-player:-webkit-full-screen .ssp-stage { height:100%; aspect-ratio:auto; }
+@media (max-width:720px) {
+  .ssp-top-actions button[data-action="fullscreen"] { min-width:44px; min-height:44px; }
+  .ssp-top { padding-top:max(8px,env(safe-area-inset-top)); }
+  .ssp-bottom { padding-bottom:max(8px,env(safe-area-inset-bottom)); }
+}

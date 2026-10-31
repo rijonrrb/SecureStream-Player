@@ -8,7 +8,9 @@
 
 **Interactive demo:** https://rijonrrb.github.io/SecureStream-Player/  
 
-> This is an early development release (`v0.1.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Audio/subtitle menus display only tracks exposed by the HLS manifest or browser-supported text tracks; arbitrary MKV embedded tracks require compatible web delivery or conversion.
+**MKV support and iPhone fullscreen:** [Preparation, compatibility and usage guide](docs/MKV_AND_IOS.md). Raw MKV URLs need an explicitly prepared MP4/HLS fallback; iPhones use native WebKit video fullscreen instead of fullscreening the custom player container.
+
+> This is an early development release (`v0.2.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Audio/subtitle menus display only tracks exposed by the HLS manifest or browser-supported text tracks; arbitrary MKV embedded tracks require compatible web delivery or conversion.
 
 ## Why SecureStream?
 

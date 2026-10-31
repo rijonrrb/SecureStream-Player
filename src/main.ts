@@ -10,7 +10,7 @@ if (!mount) throw new Error('Demo mount not found');
 mount.innerHTML = [
   '<header class="site-nav"><div class="wrap nav-inner">',
   '  <a class="wordmark" href="./" aria-label="SecureStream home"><span class="wordmark-glyph">▶</span>SECURE<span>STREAM</span><b>.</b></a>',
-  '  <div class="nav-right"><span class="nav-version">VERSION 0.1.0 / OPEN SOURCE</span>',
+  '  <div class="nav-right"><span class="nav-version">VERSION 0.2.0 / OPEN SOURCE</span>',
   '  <a class="nav-github" href="https://github.com/rijonrrb/SecureStream-Player" target="_blank" rel="noopener noreferrer">GITHUB <span>↗</span></a></div>',
   '</div></header>',
   '<main class="wrap">',
@@ -39,6 +39,8 @@ mount.innerHTML = [
   '        <select id="demo-source"><option value="hls">Big Buck Bunny / Adaptive HLS</option><option value="multitrack">Angel One / Audio + Subtitles</option><option value="mp4">Flower / Standard MP4</option></select>',
   '        <label for="custom-url">02 — CUSTOM STREAM URL</label>',
   '        <input id="custom-url" type="url" placeholder="https://example.com/master.m3u8" autocomplete="off" />',
+  '        <label for="fallback-url">03 — MKV PREPARED MP4/HLS FALLBACK (OPTIONAL)</label>',
+  '        <input id="fallback-url" type="url" placeholder="https://example.com/prepared.mp4" autocomplete="off" />',
   '        <button id="load-source" type="button">LOAD VIDEO <span>↗</span></button>',
   '        <p class="source-note">Use a CORS-enabled MP4 or HLS master playlist. Available quality, subtitles and audio tracks are determined by the media source.</p>',
   '      </aside>',
@@ -67,6 +69,7 @@ const videoContainer = document.getElementById('securestream-demo') as HTMLEleme
 const selector = document.getElementById('demo-source') as HTMLSelectElement;
 const input = document.getElementById('custom-url') as HTMLInputElement;
 const load = document.getElementById('load-source') as HTMLButtonElement;
+const fallbackInput = document.getElementById('fallback-url') as HTMLInputElement;
 let player: SecureStreamPlayer | undefined;
 
 function startDemo(): void {
@@ -77,13 +80,14 @@ function startDemo(): void {
     container: videoContainer,
     id: 'demo:' + source,
     src: source,
+    fallbackSrc: fallbackInput.value.trim() || undefined,
     title: custom ? 'Custom stream' : selector.value === 'multitrack' ? 'Angel One · Multilingual Sample' : selector.value === 'hls' ? 'Big Buck Bunny · Sample Film' : 'Flower · Sample Clip',
     poster: !custom && selector.value === 'hls' ? './demo-poster.jpg' : undefined,
     watermark: { text: 'SECURESTREAM / DEMO', enabled: false },
   });
 }
 load.addEventListener('click', startDemo);
-selector.addEventListener('change', () => { input.value = ''; startDemo(); });
+selector.addEventListener('change', () => { input.value = ''; fallbackInput.value = ''; startDemo(); });
 document.getElementById('copy-install')?.addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText('npm install github:rijonrrb/SecureStream-Player');

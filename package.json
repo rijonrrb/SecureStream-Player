@@ -1,6 +1,6 @@
 {
   "name": "@rijonrrb/securestream-player",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A reusable, accessible HLS video player with manual/auto quality, audio, subtitles, watermark and resume support.",
   "type": "module",
   "license": "MIT",
