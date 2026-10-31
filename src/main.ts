@@ -77,6 +77,7 @@ function startDemo(): void {
     id: 'demo:' + source,
     src: source,
     title: selector.value === 'hls' ? 'Big Buck Bunny · Sample Film' : 'Flower · Sample Clip',
+    poster: !custom && selector.value === 'hls' ? './demo-poster.jpg' : undefined,
     watermark: { text: 'SECURESTREAM / DEMO', enabled: false },
   });
 }
