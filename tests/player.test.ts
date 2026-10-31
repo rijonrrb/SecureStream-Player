@@ -85,4 +85,58 @@ describe('SecureStreamPlayer', () => {
     select.dispatchEvent(new Event('change'));
     expect(video.playbackRate).toBe(1.5);
   });
+  it('keeps advanced settings behind the three-dot menu', () => {
+    player = setup();
+    const button = host.querySelector<HTMLButtonElement>('[data-action="menu"]')!;
+    const menu = host.querySelector<HTMLElement>('.ssp-settings')!;
+    expect(menu.hidden).toBe(true);
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(host.querySelector('[data-action="theater"]')).toBeNull();
+    button.click();
+    expect(menu.hidden).toBe(false);
+    expect(button.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('[data-role="quality"]')).not.toBeNull();
+    expect(host.querySelector('[data-role="audio"]')).not.toBeNull();
+    expect(host.querySelector('[data-role="captions"]')).not.toBeNull();
+    expect(host.querySelector('[data-role="display"]')).not.toBeNull();
+    expect(host.querySelector('[data-role="theme"]')).not.toBeNull();
+    expect(host.querySelector('[data-role="watermark"]')).not.toBeNull();
+    host.querySelector<HTMLButtonElement>('[data-action="close-menu"]')!.click();
+    expect(menu.hidden).toBe(true);
+  });
+  it('toggles elapsed/full duration to time remaining', () => {
+    player = setup();
+    const video = host.querySelector('video')!;
+    Object.defineProperty(video, 'duration', { configurable: true, value: 125 });
+    video.currentTime = 40;
+    video.dispatchEvent(new Event('timeupdate'));
+    const timer = host.querySelector<HTMLButtonElement>('[data-action="time"]')!;
+    expect(timer.textContent).toContain('0:40 / 2:05');
+    timer.click();
+    expect(timer.textContent).toContain('0:40 / −1:25');
+    timer.click();
+    expect(timer.textContent).toContain('0:40 / 2:05');
+  });
+  it('does not alter stage dimensions for fit/fill/stretch and aspect presets', () => {
+    player = setup();
+    const stage = host.querySelector<HTMLElement>('.ssp-stage')!;
+    const originalStyle = stage.getAttribute('style');
+    const originalClass = stage.className;
+    for (const mode of ['fit','fill','stretch','ratio-16-9','ratio-4-3','ratio-21-9'] as const) {
+      player.setDisplayMode(mode);
+      expect(stage.getAttribute('style')).toBe(originalStyle);
+      expect(stage.className).toBe(originalClass);
+    }
+  });
+  it('toggles watermark from the advanced settings checkbox', () => {
+    player = setup();
+    const mark = host.querySelector<HTMLElement>('.ssp-watermark')!;
+    const toggle = host.querySelector<HTMLInputElement>('[data-role="watermark"]')!;
+    expect(toggle.checked).toBe(true);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    expect(mark.hidden).toBe(true);
+    expect(toggle.checked).toBe(false);
+  });
+
 });

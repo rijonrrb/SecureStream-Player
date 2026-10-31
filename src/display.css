@@ -1,9 +1,7 @@
-.ssp-player[data-display="fit"] .ssp-video { object-fit:contain; }
-.ssp-player[data-display="fill"] .ssp-video { object-fit:cover; }
-.ssp-player[data-display="stretch"] .ssp-video { object-fit:fill; }
-.ssp-player[data-display="ratio-16-9"] .ssp-stage { aspect-ratio:16/9; }
-.ssp-player[data-display="ratio-4-3"] .ssp-stage { aspect-ratio:4/3; }
-.ssp-player[data-display="ratio-21-9"] .ssp-stage { aspect-ratio:21/9; }
-.ssp-player[data-display^="ratio-"] .ssp-video { object-fit:cover; }
-.ssp-player .ssp-stage { transition: aspect-ratio .2s ease; }
-.ssp-player:fullscreen .ssp-stage { aspect-ratio:auto; }
+.ssp-player[data-display="fit"] .ssp-video { object-fit:contain; clip-path:none; transform:none; }
+.ssp-player[data-display="fill"] .ssp-video { object-fit:cover; clip-path:none; transform:none; }
+.ssp-player[data-display="stretch"] .ssp-video { object-fit:fill; clip-path:none; transform:none; }
+/* Aspect presets crop the moving image INSIDE a fixed stage; they never resize the player itself. */
+.ssp-player[data-display="ratio-16-9"] .ssp-video { object-fit:cover; clip-path:none; }
+.ssp-player[data-display="ratio-4-3"] .ssp-video { object-fit:cover; clip-path:inset(0 12.5% 0 12.5%); }
+.ssp-player[data-display="ratio-21-9"] .ssp-video { object-fit:cover; clip-path:inset(12% 0 12% 0); }

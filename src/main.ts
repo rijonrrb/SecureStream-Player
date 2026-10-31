@@ -5,39 +5,61 @@ const HLS_DEMO = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
 const MP4_DEMO = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
 const mount = document.querySelector<HTMLDivElement>('#app');
 if (!mount) throw new Error('Demo mount not found');
+
 mount.innerHTML = [
-  '<div class="site-container">',
-  '  <header class="header"><a class="brand" href="/"><span class="brand-icon">▶</span><span>SecureStream<span style="color:#74d4ff">.</span></span></a>',
-  '    <nav class="top-nav"><a href="#features">Features</a><a class="github" href="https://github.com/rijonrrb/SecureStream-Player" target="_blank" rel="noopener">★ GitHub Repository ↗</a></nav></header>',
-  '  <section class="hero"><div class="eyebrow">Open Source · TypeScript · HLS.js</div>',
-  '    <h1>A better way to <span>experience video.</span></h1>',
-  '    <p>Meet SecureStream — an adaptive, reusable player built for developers. Explore quality selection, multilingual audio and subtitles, Fit/Fill/Stretch aspect controls, playback shortcuts, resume, and an optional watermark.</p>',
-  '    <div class="pills"><span>● Adaptive HLS</span><span>● Auto + Manual Quality</span><span>● Up to 4K when available</span><span>● Framework Agnostic</span></div>',
+  '<header class="site-nav"><div class="wrap nav-inner">',
+  '  <a class="wordmark" href="./" aria-label="SecureStream home"><span class="wordmark-glyph">▶</span>SECURE<span>STREAM</span><b>.</b></a>',
+  '  <div class="nav-right"><span class="nav-version">VERSION 0.1.0 / OPEN SOURCE</span>',
+  '  <a class="nav-github" href="https://github.com/rijonrrb/SecureStream-Player" target="_blank" rel="noopener noreferrer">GITHUB <span>↗</span></a></div>',
+  '</div></header>',
+  '<main class="wrap">',
+  '  <section class="intro">',
+  '    <div class="intro-left"><div class="section-index"><span>01 / INTRODUCTION</span><span class="rule"></span></div>',
+  '      <h1>VIDEO.<br><em>WITHOUT THE</em><br>CLUTTER<span class="punctuation">.</span></h1>',
+  '    </div>',
+  '    <div class="intro-right"><span class="intro-kicker">THE PLAYER, REIMAGINED.</span>',
+  '      <p>An open-source video player with adaptive HLS streaming, multilingual audio and thoughtfully considered controls.</p>',
+  '      <div class="intro-meta"><span>TYPE SCRIPT</span><span>HLS.JS</span><span>FRAMEWORK AGNOSTIC</span></div>',
+  '    </div>',
   '  </section>',
-  '  <section class="player-area">',
-  '    <div class="video-panel"><div id="securestream-demo"></div><h2>Interactive playback demo</h2>',
-  '      <p class="description">Use the player controls to change speed, seek ±10 seconds, toggle watermark, enter fullscreen or PiP, and resume where you left off. Available quality, audio, and subtitle choices depend on the selected demo stream.</p></div>',
-  '    <aside class="panel"><h3>Demo playground</h3><label class="form-label" for="demo-source">Stream source</label>',
-  '      <select id="demo-source"><option value="hls">Adaptive HLS · Big Buck Bunny</option><option value="mp4">Standard MP4 · Flower</option></select>',
-  '      <label class="form-label" for="custom-url">Custom HLS / MP4 URL</label>',
-  '      <input id="custom-url" type="url" placeholder="https://…/master.m3u8" autocomplete="off" />',
-  '      <button id="load-source">Load video</button>',
-  '      <p class="hint">For a custom source, configure CORS and use a valid HLS master playlist or browser-compatible MP4. 4K and multiple languages appear only when provided by the stream.</p>',
-  '      <p class="hint">This public demo does not upload your files. Use only content you own or have permission to share.</p></aside>',
+  '  <section class="playground" id="demo">',
+  '    <div class="section-index"><span>02 / LIVE DEMO</span><span class="rule"></span><span class="section-tag">INTERACTIVE</span></div>',
+  '    <div class="demo-heading"><h2>THE PLAYBACK EXPERIENCE</h2><p>Everything you need. Nothing in the way.</p></div>',
+  '    <div class="demo-layout">',
+  '      <div class="player-column"><div class="player-frame"><div id="securestream-demo"></div></div>',
+  '        <div class="player-caption"><span class="live-indicator"></span><span>LIVE PLAYER PREVIEW</span><span class="caption-divider">/</span><span>HLS + HTML5</span>',
+  '          <span class="caption-note">Click the three-dot menu inside the player for advanced settings.</span></div>',
+  '      </div>',
+  '      <aside class="source-panel">',
+  '        <div class="source-topline"><span>PLAYGROUND</span><span>001</span></div>',
+  '        <h3>TRY IT YOURSELF.</h3>',
+  '        <p>Load a sample or connect your own compatible media URL.</p>',
+  '        <label for="demo-source">01 — SAMPLE SOURCE</label>',
+  '        <select id="demo-source"><option value="hls">Big Buck Bunny / Adaptive HLS</option><option value="mp4">Flower / Standard MP4</option></select>',
+  '        <label for="custom-url">02 — CUSTOM STREAM URL</label>',
+  '        <input id="custom-url" type="url" placeholder="https://example.com/master.m3u8" autocomplete="off" />',
+  '        <button id="load-source" type="button">LOAD VIDEO <span>↗</span></button>',
+  '        <p class="source-note">Use a CORS-enabled MP4 or HLS master playlist. Available quality, subtitles and audio tracks are determined by the media source.</p>',
+  '      </aside>',
+  '    </div>',
   '  </section>',
-  '  <section id="features" class="feature-grid">',
-  '    <div class="feature"><span class="feature-icon">◈</span><h3>Adaptive quality</h3><p>Auto ABR plus manual rendition selection; 4K supported when available in the HLS manifest.</p></div>',
-  '    <div class="feature"><span class="feature-icon">◉</span><h3>Audio & subtitles</h3><p>Switch between available HLS audio tracks and subtitle languages without restarting playback.</p></div>',
-  '    <div class="feature"><span class="feature-icon">⏱</span><h3>Continue watching</h3><p>Save a unique video position in localStorage and resume in the same browser.</p></div>',
-  '    <div class="feature"><span class="feature-icon">⊞</span><h3>Viewing modes</h3><p>Fit, fill/crop, stretch, aspect ratios, PiP, fullscreen, theater and floating mini player.</p></div>',
-  '    <div class="feature"><span class="feature-icon">↶</span><h3>Precise controls</h3><p>Seek forward or rewind ten seconds, keyboard shortcuts, variable speed and volume.</p></div>',
-  '    <div class="feature"><span class="feature-icon">◇</span><h3>Watermark switch</h3><p>Enable or disable a configurable visual watermark without editing the video.</p></div>',
-  '    <div class="feature"><span class="feature-icon">⚡</span><h3>Network recovery</h3><p>Bounded HLS network retries and media recovery with a helpful error message.</p></div>',
-  '    <div class="feature"><span class="feature-icon">⌘</span><h3>Developer-first</h3><p>Typed API, buildable ESM/UMD library, unit tests, MIT license and CI workflow.</p></div>',
+  '  <section class="features" id="features">',
+  '    <div class="section-index"><span>03 / FEATURES</span><span class="rule"></span><span class="section-tag">BUILT FOR THE WEB</span></div>',
+  '    <div class="features-heading"><h2>THE ESSENTIALS.<br><span>DONE RIGHT.</span></h2><p>Professional playback controls, quietly integrated into your product.</p></div>',
+  '    <div class="feature-grid">',
+  '      <article class="feature"><span class="feature-number">01.</span><h3>ADAPTIVE STREAMING</h3><p>Auto bitrate adaptation with manual quality selection up to 4K when offered by the source.</p></article>',
+  '      <article class="feature"><span class="feature-number">02.</span><h3>AUDIO & SUBTITLES</h3><p>Select available audio languages and subtitle tracks independently from one discreet menu.</p></article>',
+  '      <article class="feature"><span class="feature-number">03.</span><h3>VIEW YOUR WAY</h3><p>Fit, fill, stretch and crop modes change the picture — never the player dimensions.</p></article>',
+  '      <article class="feature"><span class="feature-number">04.</span><h3>CONTINUE WATCHING</h3><p>Remember playback position locally and pick up from where you stopped in the same browser.</p></article>',
+  '      <article class="feature"><span class="feature-number">05.</span><h3>FLEXIBLE CONTROLS</h3><p>Ten-second skipping, playback speed, time remaining, fullscreen, PiP and mini player.</p></article>',
+  '      <article class="feature"><span class="feature-number">06.</span><h3>OPTIONAL WATERMARK</h3><p>Enable or disable a lightweight overlay. Designed for identification, not DRM.</p></article>',
+  '    </div>',
   '  </section>',
-  '  <footer><span>SecureStream Player · Made for developers by Rijon</span>',
-  '    <span>HLS demo: Big Buck Bunny (Blender Foundation, CC BY 3.0); MP4 demo: MDN CC0 Flower.</span></footer>',
-  '</div>',
+  '  <section class="install" id="install"><div><span class="eyebrow">04 / GET STARTED</span><h2>READY TO INTEGRATE?</h2><p>Framework independent. MIT licensed. Install directly from GitHub.</p></div>',
+  '    <div class="install-command"><code>npm install github:rijonrrb/SecureStream-Player</code><button id="copy-install" type="button" aria-label="Copy installation command">COPY</button></div></section>',
+  '</main>',
+  '<footer class="footer"><div class="wrap footer-inner"><div>© 2026 <strong>SECURESTREAM.</strong> MADE BY RIJON.</div>',
+  ' <div>DEMO STREAMS: <a href="https://peach.blender.org/" target="_blank" rel="noopener">BIG BUCK BUNNY</a> (CC BY 3.0) · <a href="https://developer.mozilla.org/" target="_blank" rel="noopener">MDN FLOWER</a> (CC0)</div></div></footer>',
 ].join('\n');
 
 const videoContainer = document.getElementById('securestream-demo') as HTMLElement;
@@ -54,11 +76,20 @@ function startDemo(): void {
     container: videoContainer,
     id: 'demo:' + source,
     src: source,
-    title: 'SecureStream interactive demo',
-    watermark: { text: 'SecureStream · DEMO', enabled: true },
+    title: selector.value === 'hls' ? 'Big Buck Bunny · Sample Film' : 'Flower · Sample Clip',
+    watermark: { text: 'SECURESTREAM / DEMO', enabled: false },
   });
 }
-
 load.addEventListener('click', startDemo);
 selector.addEventListener('change', () => { input.value = ''; startDemo(); });
+document.getElementById('copy-install')?.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText('npm install github:rijonrrb/SecureStream-Player');
+    const button = document.getElementById('copy-install');
+    if (button) button.textContent = 'COPIED';
+  } catch {
+    const button = document.getElementById('copy-install');
+    if (button) button.textContent = 'SELECT TEXT';
+  }
+});
 startDemo();

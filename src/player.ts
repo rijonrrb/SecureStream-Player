@@ -24,6 +24,22 @@ const PROGRESS_PREFIX = 'securestream:progress:';
 const PREFERENCES_KEY = 'securestream:preferences:v1';
 const RETRIES = 3;
 
+const svgIcon = (path: string): string => '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+const ICON = {
+  play: svgIcon('<polygon points="7 4 20 12 7 20 7 4" fill="currentColor" stroke="none"/>'),
+  pause: svgIcon('<rect x="6" y="4" width="4" height="16" fill="currentColor" stroke="none"/><rect x="14" y="4" width="4" height="16" fill="currentColor" stroke="none"/>'),
+  back: svgIcon('<path d="M3 11a9 9 0 1 1 2.6 6.4"/><path d="M3 4v7h7"/>'),
+  forward: svgIcon('<path d="M21 11a9 9 0 1 0-2.6 6.4"/><path d="M21 4v7h-7"/>'),
+  mute: svgIcon('<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="m17 9 4 6m0-6-4 6"/>'),
+  volume: svgIcon('<path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15 9a5 5 0 0 1 0 6"/><path d="M18 5a10 10 0 0 1 0 14"/>'),
+  captions: svgIcon('<rect x="2.5" y="4.5" width="19" height="15" rx="1"/><path d="M5.5 12h4m5 0h4M5.5 15h4m5 0h4"/>'),
+  audio: svgIcon('<path d="M9 18V5l12-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="15" r="3"/>'),
+  pip: svgIcon('<rect x="2" y="4" width="20" height="16" rx="1"/><rect x="12" y="11" width="8" height="6" rx=".5" fill="currentColor" stroke="none"/>'),
+  fullscreen: svgIcon('<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>'),
+  menu: svgIcon('<circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/>'),
+};
+
+
 export class SecureStreamPlayer {
   private readonly options: PlayerOptions;
   private readonly root: HTMLElement;
@@ -32,6 +48,11 @@ export class SecureStreamPlayer {
   private readonly audio: HTMLSelectElement;
   private readonly captions: HTMLSelectElement;
   private readonly speed: HTMLSelectElement;
+  private readonly theme: HTMLSelectElement;
+  private readonly settings: HTMLElement;
+  private readonly menuButton: HTMLButtonElement;
+  private readonly watermarkToggle: HTMLInputElement;
+  private showRemaining = false;
   private readonly displayMode: HTMLSelectElement;
   private readonly seek: HTMLInputElement;
   private readonly volume: HTMLInputElement;
@@ -58,6 +79,7 @@ export class SecureStreamPlayer {
       m: () => this.toggleMute(),
       p: () => void this.togglePictureInPicture(),
     };
+    if (event.key === 'Escape' && !this.settings.hidden) { this.closeMenu(); return; }
     const callback = action[event.key];
     if (callback) {
       event.preventDefault();
@@ -81,40 +103,65 @@ export class SecureStreamPlayer {
       '  <div class="ssp-watermark" aria-hidden="true"></div>',
       '  <div class="ssp-notice" role="status" aria-live="polite"></div>',
       '  <div class="ssp-preview" aria-hidden="true"></div>',
-      '  <button class="ssp-center-play" data-action="play" aria-label="Play or pause video">▶</button>',
-      '</div>',
-      '<div class="ssp-controls">',
-      '  <div class="ssp-progress-line">',
-      '    <input data-role="seek" type="range" value="0" min="0" max="1000" step="1" aria-label="Seek video position" />',
-      '  </div>',
-      '  <div class="ssp-buttons">',
-      '    <button data-action="play" aria-label="Play or pause">▶</button>',
-      '    <button data-action="back" title="Rewind 10 seconds" aria-label="Rewind 10 seconds">↶10</button>',
-      '    <button data-action="forward" title="Forward 10 seconds" aria-label="Forward 10 seconds">10↷</button>',
-      '    <div class="ssp-time" data-role="time">0:00 / 0:00</div>',
-      '    <button data-action="mute" aria-label="Mute or unmute">🔊</button>',
-      '    <input data-role="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" />',
-      '    <span class="ssp-spacer"></span>',
-      '    <label>Quality<select data-role="quality" aria-label="Video quality"><option value="auto">Auto</option></select></label>',
-      '    <label>Audio<select data-role="audio" aria-label="Audio language"><option value="-1">Default</option></select></label>',
-      '    <label>CC<select data-role="captions" aria-label="Subtitles"><option value="off">Off</option></select></label>',
-      '    <label>View<select data-role="display" aria-label="Video fit and aspect ratio">',
-      '      <option value="fit">Fit</option><option value="fill">Fill / Crop</option>',
-      '      <option value="stretch">Stretch</option><option value="ratio-16-9">16:9</option>',
-      '      <option value="ratio-4-3">4:3</option><option value="ratio-21-9">21:9</option>',
-      '    </select></label>',
-      '    <label>Speed<select data-role="speed" aria-label="Playback speed">',
-      '      <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1">1×</option>',
-      '      <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>',
-      '    </select></label>',
-      '    <button data-action="watermark" aria-label="Toggle watermark" title="Toggle watermark">WM</button>',
-      '    <button data-action="theater" aria-label="Theater mode" title="Theater mode">▣</button>',
-      '    <button data-action="pip" aria-label="Picture in picture" title="Picture in picture">▣↗</button>',
-      '    <button data-action="mini" aria-label="Mini player" title="Mini player">▢</button>',
-      '    <button data-action="fullscreen" aria-label="Fullscreen" title="Fullscreen">⛶</button>',
+      '  <button class="ssp-center-play" data-action="play" aria-label="Play video">▶</button>',
+      '  <div class="ssp-overlay">',
+      '    <div class="ssp-top">',
+      '      <div class="ssp-title" data-role="title"></div>',
+      '      <div class="ssp-top-actions">',
+      '        <button data-action="captions-menu" title="Subtitles" aria-label="Subtitles and captions">CC</button>',
+      '        <button data-action="audio-menu" title="Audio language" aria-label="Audio language">♫</button>',
+      '        <button data-action="pip" title="Picture-in-Picture" aria-label="Picture-in-Picture">▣</button>',
+      '        <button data-action="fullscreen" title="Fullscreen" aria-label="Fullscreen">⛶</button>',
+      '        <button class="ssp-menu-toggle" data-action="menu" aria-label="More playback settings" aria-expanded="false" aria-controls="ssp-settings">⋮</button>',
+      '      </div>',
+      '    </div>',
+      '    <div class="ssp-settings" id="ssp-settings" role="group" aria-label="Playback settings" hidden>',
+      '      <div class="ssp-settings-header"><span>PLAYBACK SETTINGS</span><button data-action="close-menu" aria-label="Close settings">×</button></div>',
+      '      <label>Quality<select data-role="quality" aria-label="Video quality"><option value="auto">Auto</option></select></label>',
+      '      <label>Audio language<select data-role="audio" aria-label="Audio language"><option value="-1">Default</option></select></label>',
+      '      <label>Subtitles<select data-role="captions" aria-label="Subtitles"><option value="off">Off</option></select></label>',
+      '      <label>Playback speed<select data-role="speed" aria-label="Playback speed">',
+      '        <option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1">1×</option>',
+      '        <option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option>',
+      '      </select></label>',
+      '      <label>Video view<select data-role="display" aria-label="Video fit and aspect ratio">',
+      '        <option value="fit">Fit</option><option value="fill">Fill / crop</option>',
+      '        <option value="stretch">Stretch</option><option value="ratio-16-9">16:9 crop</option>',
+      '        <option value="ratio-4-3">4:3 crop</option><option value="ratio-21-9">21:9 crop</option>',
+      '      </select></label>',
+      '      <label>Control theme<select data-role="theme" aria-label="Control theme"><option value="cinema">Cinema</option><option value="contrast">High contrast</option></select></label>',
+      '      <label class="ssp-switch-row">Watermark<input data-role="watermark" type="checkbox" aria-label="Enable watermark" /></label>',
+      '      <button class="ssp-mini-action" data-action="mini" title="Mini player">Toggle mini player</button>',
+      '    </div>',
+      '    <div class="ssp-bottom">',
+      '      <div class="ssp-progress-line"><input data-role="seek" type="range" value="0" min="0" max="1000" step="1" aria-label="Seek video position" /></div>',
+      '      <div class="ssp-buttons">',
+      '        <div class="ssp-primary-buttons">',
+      '          <button data-action="back" title="Rewind 10 seconds" aria-label="Rewind 10 seconds">↶<small>10</small></button>',
+      '          <button data-action="play" title="Play or pause" aria-label="Play or pause">▶</button>',
+      '          <button data-action="forward" title="Forward 10 seconds" aria-label="Forward 10 seconds"><small>10</small>↷</button>',
+      '          <button class="ssp-time" data-role="time" data-action="time" title="Toggle between duration and time remaining" aria-label="Toggle elapsed and remaining time">0:00 / 0:00</button>',
+      '        </div>',
+      '        <div class="ssp-secondary-buttons">',
+      '          <button data-action="mute" title="Mute" aria-label="Mute or unmute">◖))</button>',
+      '          <input data-role="volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" />',
+      '        </div>',
+      '      </div>',
+      '    </div>',
       '  </div>',
       '</div>',
     ].join('\n');
+    const iconButtons: Record<string, string> = {
+      play: ICON.play, back: ICON.back + '<small>10</small>',
+      forward: '<small>10</small>' + ICON.forward, mute: ICON.volume,
+      'captions-menu': ICON.captions, 'audio-menu': ICON.audio,
+      pip: ICON.pip, fullscreen: ICON.fullscreen, menu: ICON.menu,
+    };
+    this.root.querySelectorAll<HTMLButtonElement>('button[data-action]').forEach(button => {
+      const icon = iconButtons[button.dataset.action || ''];
+      if (icon) button.innerHTML = icon;
+    });
+    this.root.querySelector<HTMLButtonElement>('.ssp-center-play')!.innerHTML = ICON.play;
     options.container.replaceChildren(this.root);
     const get = <T extends HTMLElement>(selector: string): T => {
       const el = this.root.querySelector<T>(selector);
@@ -126,6 +173,10 @@ export class SecureStreamPlayer {
     this.audio = get<HTMLSelectElement>('[data-role="audio"]');
     this.captions = get<HTMLSelectElement>('[data-role="captions"]');
     this.speed = get<HTMLSelectElement>('[data-role="speed"]');
+    this.theme = get<HTMLSelectElement>('[data-role="theme"]');
+    this.settings = get<HTMLElement>('.ssp-settings');
+    this.menuButton = get<HTMLButtonElement>('[data-action="menu"]');
+    this.watermarkToggle = get<HTMLInputElement>('[data-role="watermark"]');
     this.displayMode = get<HTMLSelectElement>('[data-role="display"]');
     this.seek = get<HTMLInputElement>('[data-role="seek"]');
     this.volume = get<HTMLInputElement>('[data-role="volume"]');
@@ -133,7 +184,8 @@ export class SecureStreamPlayer {
     this.watermark = get<HTMLElement>('.ssp-watermark');
     this.preview = get<HTMLElement>('.ssp-preview');
     this.progressTime = get<HTMLElement>('[data-role="time"]');
-    this.playButton = get<HTMLButtonElement>('.ssp-buttons [data-action="play"]');
+    this.playButton = get<HTMLButtonElement>('.ssp-primary-buttons [data-action="play"]');
+    get<HTMLElement>('[data-role="title"]').textContent = options.title || '';
     this.muteButton = get<HTMLButtonElement>('[data-action="mute"]');
 
     this.video.controls = false;
@@ -145,6 +197,10 @@ export class SecureStreamPlayer {
     } else {
       this.watermark.hidden = true;
     }
+    this.watermarkToggle.checked = !this.watermark.hidden;
+    this.watermarkToggle.disabled = !options.watermark?.text;
+    this.root.dataset.display = 'fit';
+    this.root.dataset.theme = 'cinema';
     const preferences = this.readPreferences();
     if (preferences) {
       this.video.playbackRate = preferences.speed;
@@ -161,6 +217,9 @@ export class SecureStreamPlayer {
 
   private attachEvents(): void {
     this.root.addEventListener('keydown', this.onKeyDown);
+    this.root.addEventListener('pointerdown', (event) => {
+      if (!this.settings.hidden && !this.settings.contains(event.target as Node) && !this.menuButton.contains(event.target as Node)) this.closeMenu();
+    });
     this.root.querySelectorAll<HTMLButtonElement>('[data-action]').forEach(button => {
       button.addEventListener('click', () => this.handleAction(button.dataset.action || ''));
     });
@@ -179,6 +238,8 @@ export class SecureStreamPlayer {
     this.video.addEventListener('ended', () => this.removeProgress());
     this.video.addEventListener('error', () => this.showNotice('Playback error. Check the video URL and browser codec support.'));
     this.video.addEventListener('volumechange', () => this.updateMuteLabel());
+    this.watermarkToggle.addEventListener('change', () => this.setWatermark(this.watermarkToggle.checked));
+    this.theme.addEventListener('change', () => { this.root.dataset.theme = this.theme.value; });
     this.seek.addEventListener('input', () => this.updatePreview());
     this.seek.addEventListener('change', () => {
       const duration = this.video.duration;
@@ -216,13 +277,27 @@ export class SecureStreamPlayer {
       case 'back': this.skip(-10); break;
       case 'forward': this.skip(10); break;
       case 'mute': this.toggleMute(); break;
-      case 'watermark': this.setWatermark(this.watermark.hidden); break;
-      case 'theater': this.root.classList.toggle('ssp-theater'); break;
+      case 'menu': this.toggleMenu(); break;
+      case 'close-menu': this.closeMenu(); break;
+      case 'captions-menu': this.openMenu('captions'); break;
+      case 'audio-menu': this.openMenu('audio'); break;
+      case 'time': this.showRemaining = !this.showRemaining; this.updateProgress(); break;
       case 'mini': this.root.classList.toggle('ssp-mini'); break;
       case 'pip': void this.togglePictureInPicture(); break;
       case 'fullscreen': void this.toggleFullscreen(); break;
     }
   }
+
+  private openMenu(focus?: 'captions' | 'audio'): void {
+    this.settings.hidden = false;
+    this.menuButton.setAttribute('aria-expanded', 'true');
+    if (focus) (focus === 'captions' ? this.captions : this.audio).focus();
+  }
+  private closeMenu(): void {
+    this.settings.hidden = true;
+    this.menuButton.setAttribute('aria-expanded', 'false');
+  }
+  private toggleMenu(): void { if (this.settings.hidden) this.openMenu(); else this.closeMenu(); }
 
   private loadSource(): void {
     const isHls = /\.m3u8($|\?)/i.test(this.options.src);
@@ -355,7 +430,9 @@ export class SecureStreamPlayer {
     if (Number.isFinite(duration) && duration > 0) {
       this.seek.value = String(Math.min(1000, Math.max(0, Math.round(current / duration * 1000))));
     }
-    this.progressTime.textContent = this.formatTime(current) + ' / ' + this.formatTime(duration);
+    const total = Number.isFinite(duration) ? duration : 0;
+    this.progressTime.textContent = this.formatTime(current) + ' / ' + (this.showRemaining ? '−' + this.formatTime(Math.max(0, total - current)) : this.formatTime(total));
+    this.seek.style.setProperty('--ssp-progress', (Number(this.seek.value) / 10) + '%');
   }
 
   private updatePreview(): void {
@@ -417,13 +494,14 @@ export class SecureStreamPlayer {
     }));
   }
   private updateMuteLabel(): void {
-    this.muteButton.textContent = this.video.muted || this.video.volume === 0 ? '🔇' : '🔊';
+    this.muteButton.innerHTML = this.video.muted || this.video.volume === 0 ? ICON.mute : ICON.volume;
+    this.volume.value = String(this.video.volume);
   }
   private updatePlayLabel(): void {
     const playing = !this.video.paused;
-    this.playButton.textContent = playing ? 'Ⅱ' : '▶';
+    this.playButton.innerHTML = playing ? ICON.pause : ICON.play;
     const center = this.root.querySelector<HTMLButtonElement>('.ssp-center-play');
-    if (center) center.hidden = playing;
+    if (center) { center.hidden = playing; center.innerHTML = ICON.play; }
   }
   private showNotice(message: string): void {
     this.notice.textContent = message;
@@ -455,6 +533,7 @@ export class SecureStreamPlayer {
   public setWatermark(enabled: boolean): void {
     if (!this.options.watermark?.text) return;
     this.watermark.hidden = !enabled;
+    this.watermarkToggle.checked = enabled;
     this.showNotice(enabled ? 'Watermark enabled' : 'Watermark disabled');
   }
   public async toggleFullscreen(): Promise<void> {

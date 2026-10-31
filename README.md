@@ -13,7 +13,7 @@
 
 ## Why SecureStream?
 
-Create a Netflix-style playback experience in **plain JavaScript, React, Next.js, Vue or Laravel** by mounting a small TypeScript-powered library in a DOM element. Keep video storage and transcoding separate: use Cloudflare R2, a CDN, or any HTTP server that correctly serves HLS playlists and segments with CORS. The player does not download or re-encode your source files.
+Embed a complete playback interface in **plain JavaScript, React, Next.js, Vue or Laravel** by mounting a framework-agnostic TypeScript library into a DOM element. Video hosting and transcoding are left to the integrator: use any authorized HTTP server or CDN that correctly serves HLS playlists and segments with CORS. The player does not download or re-encode your source files.
 
 ### Features
 
@@ -23,12 +23,13 @@ Create a Netflix-style playback experience in **plain JavaScript, React, Next.js
 | Quality | Auto adaptive bitrate and manual rendition selection (360p, 480p, 720p, 1080p, 4K **if available in manifest**) |
 | Audio languages | Switch among alternate audio renditions provided by the HLS playlist (hls.js browsers) |
 | Captions | HLS subtitles plus optional external WebVTT tracks, toggleable separately from audio |
-| Shape / fit | Fit (letterbox), Fill/Crop, Stretch, and 16:9 / 4:3 / 21:9 crop modes |
+| Shape / fit | Fit (letterbox), Fill/Crop, Stretch, and 16:9 / 4:3 / 21:9 crop modes **inside an unchanged player frame** |
 | Playback | Seek, 10-second rewind/forward, speed 0.5x–2x, mute, volume, keyboard shortcuts |
-| Viewing | Fullscreen, Picture-in-Picture when supported, theater and floating mini player |
+| Viewing | Fullscreen, Picture-in-Picture when supported, and floating mini player; no Theater Mode |
 | Resume | Saves per-video position on the **same browser** via localStorage |
-| Watermark | Optional overlay text; toggle on/off at runtime (not DRM) |
+| Watermark | Optional overlay text; on/off in the advanced menu (not DRM) |
 | Reliability | Limited automatic HLS network/decoder recovery, visible status and error messages |
+| UI design | Transparent video overlays, thin seek bar, three-dot advanced settings, elapsed/remaining time toggle and Cinema/High contrast control theme |
 | Developer experience | Framework-agnostic DOM API, TypeScript types, ES/UMD library bundles, tests and CI |
 
 **Note on 4K and image quality:** SecureStream does not lower or compress your original video. For Auto quality and manual 360p/480p/720p/1080p/4K options, *you must provide separate renditions* in an HLS master manifest. A 4K source stays 4K as the highest rendition; producing lower bitrate renditions involves separate encoding and uses additional storage. If you only supply a 4K MP4, the browser may play it, but the player cannot magically create lower qualities.
@@ -53,7 +54,7 @@ npm run build
 ## Basic usage (vanilla JavaScript / TypeScript)
 
 ```html
-<div id="movie-player"></div>
+<div id="video-player"></div>
 ```
 
 ```ts
@@ -61,15 +62,15 @@ import { SecureStreamPlayer } from '@rijonrrb/securestream-player';
 import '@rijonrrb/securestream-player/style.css';
 
 const player = new SecureStreamPlayer({
-  container: document.querySelector('#movie-player')!,
-  id: 'movie-001', // stable ID for local resume
-  src: 'https://your-cdn.example/movies/movie-001/master.m3u8',
-  title: 'My Movie',
-  poster: '/posters/movie-001.webp',
+  container: document.querySelector('#video-player')!,
+  id: 'sample-video-001', // stable ID for local resume
+  src: 'https://media.example.com/videos/sample/master.m3u8',
+  title: 'My Video',
+  poster: '/posters/sample.webp',
   watermark: { text: 'SecureStream Demo', enabled: true },
   subtitles: [
-    { label: 'English', language: 'en', src: '/subtitles/movie-001-en.vtt' },
-    { label: 'বাংলা', language: 'bn', src: '/subtitles/movie-001-bn.vtt' },
+    { label: 'English', language: 'en', src: '/subtitles/sample-en.vtt' },
+    { label: 'বাংলা', language: 'bn', src: '/subtitles/sample-bn.vtt' },
   ],
 });
 
@@ -90,7 +91,7 @@ SecureStream is not tied to React. In React, create it inside `useEffect` after 
 'use client';
 import { useEffect, useRef } from 'react';
 
-export function MoviePlayer({ url, id }: { url: string; id: string }) {
+export function VideoPlayer({ url, id }: { url: string; id: string }) {
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!container.current) return;
@@ -137,6 +138,10 @@ Import `@rijonrrb/securestream-player/style.css` in your global stylesheet entry
 | `M` | Mute |
 | `P` | Picture-in-Picture where supported |
 
+## Control layout
+
+The player uses transparent in-video controls: **play/pause, ±10 seconds and a thin progress bar** at the bottom, with subtitle, audio, PiP, fullscreen and **⋮ More settings** at the top. Quality, language, speed, view, watermark and theme are accessible under **⋮ More settings**. Clicking the elapsed/total display switches to elapsed/negative remaining time. Fit/Fill/Stretch and crop presets never change the outer player size.
+
 ## Public player API
 
 | Method | Purpose |
@@ -163,13 +168,13 @@ Open the URL printed by Vite (typically http://localhost:5173). The demo default
 
 ## Planned enhancements
 
-See [Project roadmap](docs/ROADMAP.md) for improvements such as stronger mobile controls, caption styling, buffer statistics, fullscreen aspect interactions, native HLS parity, React wrapper, cross-device resume, accessibility audit, integration tests, and optional controlled access.
+See [Project roadmap](docs/ROADMAP.md) for improvements such as stronger mobile controls, caption styling, buffer statistics, native HLS parity, framework wrappers, accessibility audits and integration tests.
 
 ## Important limitations & legal notes
 
 * **Watermark is not copy protection.** This client-side overlay can be hidden or bypassed; use licensed DRM and authenticated delivery for genuine anti-piracy protection.
-* **A public route is public.** Do not publish or distribute films unless you own the rights or have permission to stream them. Private ownership of a file is not necessarily a right to offer it on a public website.
-* **Storage and distribution:** Cloudflare R2 stores objects; it does not automatically transcode or create an adaptive ladder. Playback smoothness depends on network throughput, encoding, CDN cache behavior and devices; zero buffering cannot be guaranteed.
+* **Licensing:** Use only video content you have permission to stream or publish. This library does not supply or license media.
+* **Media serving:** Serve source files with correct MIME types/CORS. The player does not transcode, encrypt or host your video. Playback smoothness depends on network throughput, encoding, CDN behavior and devices; zero buffering cannot be guaranteed.
 * **Resume data:** Progress is stored locally in the viewer's browser, not in a synced account.
 * **Demo video rights:** Big Buck Bunny © Blender Foundation, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) and the [Blender project](https://peach.blender.org/); alternate MDN demo is CC0.
 * **Supported browsers:** Modern Chromium, Firefox and Safari, subject to codec/HLS/PiP/platform limitations. Browser and device QA is ongoing.
