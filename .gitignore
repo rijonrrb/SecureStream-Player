@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-lib/
+.env
+.env.*
+!.env.example
+.vscode/
+coverage/
+*.log

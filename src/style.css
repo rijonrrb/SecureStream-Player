@@ -1,0 +1,46 @@
+:root { color-scheme: dark; }
+.ssp-player { --ssp-surface:#070e1d; --ssp-accent:#7ad3ff; position:relative; width:100%; color:#f3f7ff; background:var(--ssp-surface); border:1px solid #26334b; border-radius:18px; overflow:hidden; box-shadow:0 20px 70px rgba(0,0,0,.28); font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif; }
+.ssp-player * { box-sizing:border-box; }
+.ssp-player:focus-visible { outline:3px solid var(--ssp-accent); outline-offset:3px; }
+.ssp-stage { position:relative; display:flex; width:100%; aspect-ratio:16/9; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 40%,#192847,#04070f 72%); }
+.ssp-video { display:block; width:100%; height:100%; object-fit:contain; cursor:pointer; background:transparent; }
+.ssp-watermark { position:absolute; top:7%; right:4%; max-width:55%; z-index:4; padding:7px 11px; border-radius:6px; font-size:clamp(11px,1.5vw,16px); color:rgba(255,255,255,.75); background:rgba(0,0,0,.22); pointer-events:none; text-shadow:0 1px 3px #000; }
+.ssp-watermark[hidden] { display:none !important; }
+.ssp-center-play { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); border:1px solid rgba(255,255,255,.55); color:white; cursor:pointer; width:72px; height:72px; border-radius:50%; background:rgba(5,12,27,.63); font-size:24px; backdrop-filter:blur(9px); transition:background .2s,scale .2s; }
+.ssp-center-play:hover { background:rgba(21,42,69,.85); scale:1.07; }
+.ssp-center-play[hidden] { display:none; }
+.ssp-notice { position:absolute; bottom:5%; left:4%; max-width:80%; color:#e5eeff; font-size:13px; text-shadow:0 1px 4px #000; pointer-events:none; z-index:5; }
+.ssp-notice:empty { display:none; }
+.ssp-preview { display:none; position:absolute; bottom:20px; left:38%; z-index:10; border-radius:7px; padding:5px 9px; background:rgba(0,0,0,.86); color:white; pointer-events:none; text-align:center; text-shadow:0 1px 2px #000; font-size:12px; }
+.ssp-preview.ssp-visible { display:block; }
+.ssp-controls { background:#0b1529; padding:8px 14px 12px; }
+.ssp-progress-line { display:flex; align-items:center; height:15px; }
+.ssp-player button,.ssp-player select { font:inherit; }
+.ssp-buttons { display:flex; gap:9px; align-items:center; flex-wrap:wrap; }
+.ssp-buttons button { cursor:pointer; border:1px solid transparent; background:transparent; color:#d6e0f2; padding:6px 7px; border-radius:8px; min-width:29px; font-size:14px; transition:background .15s,color .15s; }
+.ssp-buttons button:hover { background:#273953; color:white; }
+.ssp-buttons button:focus-visible,.ssp-player select:focus-visible,.ssp-player input:focus-visible { outline:2px solid var(--ssp-accent); outline-offset:2px; }
+.ssp-time { min-width:95px; color:#c7d2e7; font-variant-numeric:tabular-nums; font-size:12px; }
+.ssp-spacer { flex:1; }
+.ssp-buttons label { display:flex; align-items:center; gap:5px; font-size:11px; color:#a9bedb; }
+.ssp-buttons select { min-width:56px; max-width:104px; font-size:12px; background:#19253c; color:white; border:1px solid #30405e; border-radius:6px; padding:6px 4px; cursor:pointer; }
+.ssp-buttons select:disabled { opacity:.45; cursor:not-allowed; }
+.ssp-player input[type=range] { accent-color:var(--ssp-accent); cursor:pointer; }
+.ssp-progress-line input { width:100%; margin:0; }
+.ssp-buttons input[data-role=volume] { width:64px; }
+.ssp-player.ssp-theater { width:min(96vw,1600px); max-width:none; margin-left:50%; transform:translateX(-50%); }
+.ssp-player.ssp-mini { position:fixed; z-index:10000; bottom:24px; right:24px; width:min(420px,calc(100vw - 32px)); box-shadow:0 20px 90px #000b; border:2px solid var(--ssp-accent); }
+.ssp-player.ssp-mini .ssp-buttons label,.ssp-player.ssp-mini .ssp-buttons input[data-role=volume] { display:none; }
+.ssp-player:fullscreen { border:0; border-radius:0; display:flex; flex-direction:column; justify-content:center; background:#000; }
+.ssp-player:fullscreen .ssp-stage { flex:1; min-height:0; }
+.ssp-player:fullscreen .ssp-controls { flex-shrink:0; }
+@media (max-width:760px) {
+ .ssp-controls { padding:8px 8px 10px; }
+ .ssp-buttons { gap:4px; }
+ .ssp-buttons label { font-size:10px; }
+ .ssp-buttons select { max-width:80px; font-size:11px; }
+ .ssp-buttons input[data-role=volume],.ssp-buttons [data-action=theater],.ssp-buttons [data-action=mini] { display:none; }
+ .ssp-time { min-width:74px; font-size:10px; }
+ .ssp-buttons button { padding:5px; }
+ .ssp-center-play { width:56px; height:56px; }
+}

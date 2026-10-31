@@ -1,0 +1,41 @@
+{
+  "name": "@rijonrrb/securestream-player",
+  "version": "0.1.0",
+  "description": "A reusable, accessible HLS video player with manual/auto quality, audio, subtitles, watermark and resume support.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Shakib Hossain Rijon",
+  "main": "./dist-lib/securestream.umd.cjs",
+  "module": "./dist-lib/securestream.js",
+  "types": "./dist-lib/player.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist-lib/player.d.ts",
+      "import": "./dist-lib/securestream.js",
+      "require": "./dist-lib/securestream.umd.cjs"
+    },
+    "./style.css": "./dist-lib/securestream.css"
+  },
+  "files": [
+    "dist-lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build && vite build --config vite.lib.config.ts && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "hls.js": "^1.6.13"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vitest": "^3.2.4",
+    "jsdom": "^26.1.0",
+    "@types/node": "^22.15.30"
+  }
+}

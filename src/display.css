@@ -1,0 +1,9 @@
+.ssp-player[data-display="fit"] .ssp-video { object-fit:contain; }
+.ssp-player[data-display="fill"] .ssp-video { object-fit:cover; }
+.ssp-player[data-display="stretch"] .ssp-video { object-fit:fill; }
+.ssp-player[data-display="ratio-16-9"] .ssp-stage { aspect-ratio:16/9; }
+.ssp-player[data-display="ratio-4-3"] .ssp-stage { aspect-ratio:4/3; }
+.ssp-player[data-display="ratio-21-9"] .ssp-stage { aspect-ratio:21/9; }
+.ssp-player[data-display^="ratio-"] .ssp-video { object-fit:cover; }
+.ssp-player .ssp-stage { transition: aspect-ratio .2s ease; }
+.ssp-player:fullscreen .ssp-stage { aspect-ratio:auto; }
