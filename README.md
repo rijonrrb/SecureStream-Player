@@ -6,7 +6,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
 
-**Interactive demo:** https://securestream-player.vercel.app/  
+**Interactive demo:** https://rijonrrb.github.io/SecureStream-Player/  
 **Source:** https://github.com/rijonrrb/SecureStream-Player
 
 > This is an early development release (`v0.1.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Demo quality/audio/subtitle menus depend on the sample stream's available renditions.
