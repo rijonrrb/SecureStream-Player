@@ -7,9 +7,8 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)
 
 **Interactive demo:** https://rijonrrb.github.io/SecureStream-Player/  
-**Source:** https://github.com/rijonrrb/SecureStream-Player
 
-> This is an early development release (`v0.1.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Demo quality/audio/subtitle menus depend on the sample stream's available renditions.
+> This is an early development release (`v0.1.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Audio/subtitle menus display only tracks exposed by the HLS manifest or browser-supported text tracks; arbitrary MKV embedded tracks require compatible web delivery or conversion.
 
 ## Why SecureStream?
 
@@ -25,7 +24,7 @@ Embed a complete playback interface in **plain JavaScript, React, Next.js, Vue o
 | Captions | HLS subtitles plus optional external WebVTT tracks, toggleable separately from audio |
 | Shape / fit | Fit (letterbox), Fill/Crop, Stretch, and 16:9 / 4:3 / 21:9 crop modes **inside an unchanged player frame** |
 | Playback | Seek, 10-second rewind/forward, speed 0.5x–2x, mute, volume, keyboard shortcuts |
-| Viewing | Fullscreen, Picture-in-Picture when supported, and floating mini player; no Theater Mode |
+| Viewing | Fullscreen, Picture-in-Picture when supported, and no Theater Mode |
 | Resume | Saves per-video position on the **same browser** via localStorage |
 | Watermark | Optional overlay text; on/off in the advanced menu (not DRM) |
 | Reliability | Limited automatic HLS network/decoder recovery, visible status and error messages |
@@ -140,7 +139,7 @@ Import `@rijonrrb/securestream-player/style.css` in your global stylesheet entry
 
 ## Control layout
 
-The player uses transparent in-video controls: **play/pause, ±10 seconds and a thin progress bar** at the bottom, with subtitle, audio, PiP, fullscreen and **⋮ More settings** at the top. Quality, language, speed, view, watermark and theme are accessible under **⋮ More settings**. Clicking the elapsed/total display switches to elapsed/negative remaining time. Fit/Fill/Stretch and crop presets never change the outer player size.
+The player uses transparent in-video controls: **play/pause, ±10 seconds and a thin progress bar** at the bottom, with separate subtitle and audio popovers, PiP, fullscreen and **⋮ More settings** at the top. Quality, language, speed, view, watermark and theme are accessible under **⋮ More settings**. Clicking the elapsed/total display switches to elapsed/negative remaining time. Fit/Fill/Stretch and crop presets never change the outer player size.
 
 ## Public player API
 
@@ -164,7 +163,7 @@ npm test
 npm run build
 ```
 
-Open the URL printed by Vite (typically http://localhost:5173). The demo defaults to a publicly available Big Buck Bunny HLS test playlist and offers a CC0 MDN flower MP4 alternative. You can paste your own CORS-enabled HLS or MP4 URL into the playground.
+Open the URL printed by Vite (typically http://localhost:5173). The demo defaults to Big Buck Bunny HLS and includes an Angel One multilingual HLS sample (with alternate audio/subtitle renditions) and a CC0 MDN flower MP4 alternative. You can paste your own CORS-enabled HLS or MP4 URL into the playground.
 
 ## Planned enhancements
 

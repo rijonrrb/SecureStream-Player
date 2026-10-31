@@ -51,6 +51,8 @@ export class SecureStreamPlayer {
   private readonly theme: HTMLSelectElement;
   private readonly settings: HTMLElement;
   private readonly menuButton: HTMLButtonElement;
+  private readonly quickAudio: HTMLElement;
+  private readonly quickCaptions: HTMLElement;
   private readonly watermarkToggle: HTMLInputElement;
   private showRemaining = false;
   private readonly displayMode: HTMLSelectElement;
@@ -63,6 +65,7 @@ export class SecureStreamPlayer {
   private readonly playButton: HTMLButtonElement;
   private readonly muteButton: HTMLButtonElement;
   private hls?: Hls;
+  private readonly externalSubtitleElements: HTMLTrackElement[] = [];
   private networkRetries = 0;
   private mediaRetries = 0;
   private lastSavedSecond = -1;
@@ -79,7 +82,11 @@ export class SecureStreamPlayer {
       m: () => this.toggleMute(),
       p: () => void this.togglePictureInPicture(),
     };
-    if (event.key === 'Escape' && !this.settings.hidden) { this.closeMenu(); return; }
+    if (event.key === 'Escape' && (!this.settings.hidden || !this.quickAudio.hidden || !this.quickCaptions.hidden)) {
+      this.closeMenu();
+      this.closeQuickMenus();
+      return;
+    }
     const callback = action[event.key];
     if (callback) {
       event.preventDefault();
@@ -108,14 +115,20 @@ export class SecureStreamPlayer {
       '    <div class="ssp-top">',
       '      <div class="ssp-title" data-role="title"></div>',
       '      <div class="ssp-top-actions">',
-      '        <button data-action="captions-menu" title="Subtitles" aria-label="Subtitles and captions">CC</button>',
-      '        <button data-action="audio-menu" title="Audio language" aria-label="Audio language">♫</button>',
+      '        <button data-action="captions-menu" title="Subtitles" aria-label="Subtitles and captions" aria-expanded="false" aria-controls="ssp-quick-captions">CC</button>',
+      '        <button data-action="audio-menu" title="Audio language" aria-label="Audio language" aria-expanded="false" aria-controls="ssp-quick-audio">♫</button>',
       '        <button data-action="pip" title="Picture-in-Picture" aria-label="Picture-in-Picture">▣</button>',
       '        <button data-action="fullscreen" title="Fullscreen" aria-label="Fullscreen">⛶</button>',
       '        <button class="ssp-menu-toggle" data-action="menu" aria-label="More playback settings" aria-expanded="false" aria-controls="ssp-settings">⋮</button>',
       '      </div>',
       '    </div>',
-      '    <div class="ssp-settings" id="ssp-settings" role="group" aria-label="Playback settings" hidden>',
+      '    <div class="ssp-quick-menu" id="ssp-quick-captions" data-quick="captions" role="group" aria-label="Subtitle options" hidden>',
+       '      <div class="ssp-quick-header">SUBTITLES</div><div class="ssp-quick-options"></div>',
+       '    </div>',
+       '    <div class="ssp-quick-menu" id="ssp-quick-audio" data-quick="audio" role="group" aria-label="Audio language options" hidden>',
+       '      <div class="ssp-quick-header">AUDIO LANGUAGE</div><div class="ssp-quick-options"></div>',
+       '    </div>',
+       '    <div class="ssp-settings" id="ssp-settings" role="group" aria-label="Playback settings" hidden>',
       '      <div class="ssp-settings-header"><span>PLAYBACK SETTINGS</span><button data-action="close-menu" aria-label="Close settings">×</button></div>',
       '      <label>Quality<select data-role="quality" aria-label="Video quality"><option value="auto">Auto</option></select></label>',
       '      <label>Audio language<select data-role="audio" aria-label="Audio language"><option value="-1">Default</option></select></label>',
@@ -131,8 +144,7 @@ export class SecureStreamPlayer {
       '      </select></label>',
       '      <label>Control theme<select data-role="theme" aria-label="Control theme"><option value="cinema">Cinema</option><option value="contrast">High contrast</option></select></label>',
       '      <label class="ssp-switch-row">Watermark<input data-role="watermark" type="checkbox" aria-label="Enable watermark" /></label>',
-      '      <button class="ssp-mini-action" data-action="mini" title="Mini player">Toggle mini player</button>',
-      '    </div>',
+            '    </div>',
       '    <div class="ssp-bottom">',
       '      <div class="ssp-progress-line"><input data-role="seek" type="range" value="0" min="0" max="1000" step="1" aria-label="Seek video position" /></div>',
       '      <div class="ssp-buttons">',
@@ -176,6 +188,8 @@ export class SecureStreamPlayer {
     this.theme = get<HTMLSelectElement>('[data-role="theme"]');
     this.settings = get<HTMLElement>('.ssp-settings');
     this.menuButton = get<HTMLButtonElement>('[data-action="menu"]');
+    this.quickAudio = get<HTMLElement>('[data-quick="audio"]');
+    this.quickCaptions = get<HTMLElement>('[data-quick="captions"]');
     this.watermarkToggle = get<HTMLInputElement>('[data-role="watermark"]');
     this.displayMode = get<HTMLSelectElement>('[data-role="display"]');
     this.seek = get<HTMLInputElement>('[data-role="seek"]');
@@ -218,7 +232,11 @@ export class SecureStreamPlayer {
   private attachEvents(): void {
     this.root.addEventListener('keydown', this.onKeyDown);
     this.root.addEventListener('pointerdown', (event) => {
-      if (!this.settings.hidden && !this.settings.contains(event.target as Node) && !this.menuButton.contains(event.target as Node)) this.closeMenu();
+      const target = event.target as Node;
+      if (!this.settings.hidden && !this.settings.contains(target) && !this.menuButton.contains(target)) this.closeMenu();
+      if (!this.quickAudio.contains(target) && !this.quickCaptions.contains(target)
+          && !this.root.querySelector('[data-action="audio-menu"]')!.contains(target)
+          && !this.root.querySelector('[data-action="captions-menu"]')!.contains(target)) this.closeQuickMenus();
     });
     this.root.querySelectorAll<HTMLButtonElement>('[data-action]').forEach(button => {
       button.addEventListener('click', () => this.handleAction(button.dataset.action || ''));
@@ -260,15 +278,20 @@ export class SecureStreamPlayer {
     this.displayMode.addEventListener('change', () => this.setDisplayMode(this.displayMode.value as DisplayMode));
     this.quality.addEventListener('change', () => {
       if (!this.hls) return;
-      this.hls.currentLevel = this.quality.value === 'auto' ? -1 : Number(this.quality.value);
+      // nextLevel changes on a fragment boundary instead of flushing the currently playing buffer.
+      this.hls.nextLevel = this.quality.value === 'auto' ? -1 : Number(this.quality.value);
       this.showNotice(this.quality.selectedOptions[0]?.textContent || 'Quality updated');
     });
     this.audio.addEventListener('change', () => {
       if (!this.hls || this.audio.value === '-1') return;
       this.hls.audioTrack = Number(this.audio.value);
       this.showNotice('Audio: ' + (this.audio.selectedOptions[0]?.textContent || 'Selected'));
+      if (!this.quickAudio.hidden) this.renderQuickMenu('audio');
     });
-    this.captions.addEventListener('change', () => this.changeCaptions());
+    this.captions.addEventListener('change', () => {
+      this.changeCaptions();
+      if (!this.quickCaptions.hidden) this.renderQuickMenu('captions');
+    });
   }
 
   private handleAction(action: string): void {
@@ -279,25 +302,73 @@ export class SecureStreamPlayer {
       case 'mute': this.toggleMute(); break;
       case 'menu': this.toggleMenu(); break;
       case 'close-menu': this.closeMenu(); break;
-      case 'captions-menu': this.openMenu('captions'); break;
-      case 'audio-menu': this.openMenu('audio'); break;
+      case 'captions-menu': this.toggleQuickMenu('captions'); break;
+      case 'audio-menu': this.toggleQuickMenu('audio'); break;
       case 'time': this.showRemaining = !this.showRemaining; this.updateProgress(); break;
-      case 'mini': this.root.classList.toggle('ssp-mini'); break;
       case 'pip': void this.togglePictureInPicture(); break;
       case 'fullscreen': void this.toggleFullscreen(); break;
     }
   }
 
-  private openMenu(focus?: 'captions' | 'audio'): void {
+  private openMenu(): void {
+    this.closeQuickMenus();
     this.settings.hidden = false;
     this.menuButton.setAttribute('aria-expanded', 'true');
-    if (focus) (focus === 'captions' ? this.captions : this.audio).focus();
   }
   private closeMenu(): void {
     this.settings.hidden = true;
     this.menuButton.setAttribute('aria-expanded', 'false');
   }
   private toggleMenu(): void { if (this.settings.hidden) this.openMenu(); else this.closeMenu(); }
+
+  private closeQuickMenus(): void {
+    this.quickAudio.hidden = true;
+    this.quickCaptions.hidden = true;
+    this.root.querySelector('[data-action="audio-menu"]')?.setAttribute('aria-expanded', 'false');
+    this.root.querySelector('[data-action="captions-menu"]')?.setAttribute('aria-expanded', 'false');
+  }
+  private toggleQuickMenu(type: 'audio' | 'captions'): void {
+    const panel = type === 'audio' ? this.quickAudio : this.quickCaptions;
+    const opening = panel.hidden;
+    this.closeMenu();
+    this.closeQuickMenus();
+    if (!opening) return;
+    this.renderQuickMenu(type);
+    panel.hidden = false;
+    this.root.querySelector('[data-action="' + type + '-menu"]')?.setAttribute('aria-expanded', 'true');
+  }
+  private renderQuickMenu(type: 'audio' | 'captions'): void {
+    const panel = type === 'audio' ? this.quickAudio : this.quickCaptions;
+    const select = type === 'audio' ? this.audio : this.captions;
+    const options = panel.querySelector<HTMLElement>('.ssp-quick-options')!;
+    options.replaceChildren();
+    const available = [...select.options].filter(option => type === 'captions' || option.value !== '-1');
+    if ((type === 'captions' && available.length < 2) || (type === 'audio' && available.length < 2)) {
+      const message = document.createElement('p');
+      message.className = 'ssp-quick-empty';
+      message.textContent = type === 'captions'
+        ? 'No subtitles available for this video.'
+        : 'No alternate audio languages available for this video.';
+      options.append(message);
+      return;
+    }
+    for (const option of available) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ssp-quick-option';
+      button.textContent = option.textContent;
+      const selected = type === 'audio'
+        ? option.value === String(this.hls?.audioTrack)
+        : option.value === select.value;
+      button.setAttribute('aria-pressed', String(selected));
+      button.addEventListener('click', () => {
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        this.closeQuickMenus();
+      });
+      options.append(button);
+    }
+  }
 
   private loadSource(): void {
     const isHls = /\.m3u8($|\?)/i.test(this.options.src);
@@ -317,6 +388,7 @@ export class SecureStreamPlayer {
       });
       this.hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => this.refreshAudio());
       this.hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => this.refreshCaptions());
+      this.hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, () => this.refreshAudio());
       this.hls.on(Hls.Events.LEVEL_SWITCHED, () => {
         if (this.hls?.autoLevelEnabled) this.showNotice('Auto quality');
       });
@@ -363,17 +435,29 @@ export class SecureStreamPlayer {
     this.quality.disabled = this.hls.levels.length < 2;
   }
 
+  private trackLabel(name: string | undefined, language: string | undefined, fallback: string): string {
+    // Some demo playlists use generic labels like stream_5; show a useful language name.
+    if (name && !/^stream[_ -]?\d+$/i.test(name)) return name;
+    if (language) {
+      try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(language) || language; }
+      catch { return language; }
+    }
+    return name || fallback;
+  }
+
   private refreshAudio(): void {
     if (!this.hls) return;
     const previous = this.audio.value;
     this.audio.replaceChildren(new Option('Default', '-1'));
     this.hls.audioTracks.forEach((track, index) => {
-      this.audio.add(new Option(track.name || track.lang || 'Track ' + (index + 1), String(index)));
+      this.audio.add(new Option(this.trackLabel(track.name, track.lang, 'Track ' + (index + 1)), String(index)));
     });
     this.audio.disabled = this.hls.audioTracks.length < 2;
-    this.audio.value = this.hls.audioTracks.some((_, index) => String(index) === previous)
-      ? previous : String(this.hls.audioTrack);
+    // Reflect the track actually active in hls.js, including auto/default selection.
+    const active = String(this.hls.audioTrack);
+    this.audio.value = [...this.audio.options].some(option => option.value === active) ? active : previous;
     if (this.audio.selectedIndex < 0) this.audio.value = '-1';
+    if (!this.quickAudio.hidden) this.renderQuickMenu('audio');
   }
 
   private mountExternalSubtitles(): void {
@@ -384,6 +468,7 @@ export class SecureStreamPlayer {
       element.srclang = track.language;
       element.src = track.src;
       this.video.append(element);
+      this.externalSubtitleElements.push(element);
     }
   }
 
@@ -391,16 +476,25 @@ export class SecureStreamPlayer {
     const previous = this.captions.value;
     this.captions.replaceChildren(new Option('Off', 'off'));
     this.hls?.subtitleTracks.forEach((track, index) => {
-      this.captions.add(new Option(track.name || track.lang || 'Subtitle ' + (index + 1), 'hls:' + index));
+      this.captions.add(new Option(this.trackLabel(track.name, track.lang, 'Subtitle ' + (index + 1)), 'hls:' + index));
     });
-    for (let i = 0; i < this.video.textTracks.length; i++) {
-      const track = this.video.textTracks[i];
-      if (track.kind === 'subtitles' || track.kind === 'captions') {
-        this.captions.add(new Option(track.label || track.language || 'Captions', 'native:' + i));
+    if (this.hls) {
+      // hls.js also creates native TextTracks internally; do not list them twice.
+      this.externalSubtitleElements.forEach((element, index) => {
+        this.captions.add(new Option(element.label || element.srclang || 'Captions', 'external:' + index));
+      });
+    } else {
+      // Native HLS/HTML5 tracks are handled by the browser.
+      for (let i = 0; i < this.video.textTracks.length; i++) {
+        const track = this.video.textTracks[i];
+        if (track.kind === 'subtitles' || track.kind === 'captions') {
+          this.captions.add(new Option(track.label || track.language || 'Captions', 'native:' + i));
+        }
       }
     }
     this.captions.value = [...this.captions.options].some(o => o.value === previous) ? previous : 'off';
     this.captions.disabled = this.captions.options.length < 2;
+    if (!this.quickCaptions.hidden) this.renderQuickMenu('captions');
   }
 
   private changeCaptions(): void {
@@ -409,8 +503,15 @@ export class SecureStreamPlayer {
       this.hls.subtitleDisplay = selected.startsWith('hls:');
       this.hls.subtitleTrack = selected.startsWith('hls:') ? Number(selected.split(':')[1]) : -1;
     }
-    for (let i = 0; i < this.video.textTracks.length; i++) {
-      this.video.textTracks[i].mode = selected === 'native:' + i ? 'showing' : 'disabled';
+    if (this.hls) {
+      // Never override hls.js managed textTracks after selecting HLS subtitles.
+      this.externalSubtitleElements.forEach((element, index) => {
+        element.track.mode = selected === 'external:' + index ? 'showing' : 'disabled';
+      });
+    } else {
+      for (let i = 0; i < this.video.textTracks.length; i++) {
+        this.video.textTracks[i].mode = selected === 'native:' + i ? 'showing' : 'disabled';
+      }
     }
     this.showNotice('Subtitles: ' + (this.captions.selectedOptions[0]?.textContent || 'Off'));
   }

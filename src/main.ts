@@ -2,6 +2,7 @@ import { SecureStreamPlayer } from './player';
 import './demo.css';
 
 const HLS_DEMO = 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8';
+const MULTITRACK_DEMO = 'https://storage.googleapis.com/shaka-demo-assets/angel-one-hls/hls.m3u8';
 const MP4_DEMO = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
 const mount = document.querySelector<HTMLDivElement>('#app');
 if (!mount) throw new Error('Demo mount not found');
@@ -35,7 +36,7 @@ mount.innerHTML = [
   '        <h3>TRY IT YOURSELF.</h3>',
   '        <p>Load a sample or connect your own compatible media URL.</p>',
   '        <label for="demo-source">01 — SAMPLE SOURCE</label>',
-  '        <select id="demo-source"><option value="hls">Big Buck Bunny / Adaptive HLS</option><option value="mp4">Flower / Standard MP4</option></select>',
+  '        <select id="demo-source"><option value="hls">Big Buck Bunny / Adaptive HLS</option><option value="multitrack">Angel One / Audio + Subtitles</option><option value="mp4">Flower / Standard MP4</option></select>',
   '        <label for="custom-url">02 — CUSTOM STREAM URL</label>',
   '        <input id="custom-url" type="url" placeholder="https://example.com/master.m3u8" autocomplete="off" />',
   '        <button id="load-source" type="button">LOAD VIDEO <span>↗</span></button>',
@@ -48,10 +49,10 @@ mount.innerHTML = [
   '    <div class="features-heading"><h2>THE ESSENTIALS.<br><span>DONE RIGHT.</span></h2><p>Professional playback controls, quietly integrated into your product.</p></div>',
   '    <div class="feature-grid">',
   '      <article class="feature"><span class="feature-number">01.</span><h3>ADAPTIVE STREAMING</h3><p>Auto bitrate adaptation with manual quality selection up to 4K when offered by the source.</p></article>',
-  '      <article class="feature"><span class="feature-number">02.</span><h3>AUDIO & SUBTITLES</h3><p>Select available audio languages and subtitle tracks independently from one discreet menu.</p></article>',
+  '      <article class="feature"><span class="feature-number">02.</span><h3>AUDIO & SUBTITLES</h3><p>Detect audio and subtitle tracks from HLS sources, with dedicated menus and advanced settings.</p></article>',
   '      <article class="feature"><span class="feature-number">03.</span><h3>VIEW YOUR WAY</h3><p>Fit, fill, stretch and crop modes change the picture — never the player dimensions.</p></article>',
   '      <article class="feature"><span class="feature-number">04.</span><h3>CONTINUE WATCHING</h3><p>Remember playback position locally and pick up from where you stopped in the same browser.</p></article>',
-  '      <article class="feature"><span class="feature-number">05.</span><h3>FLEXIBLE CONTROLS</h3><p>Ten-second skipping, playback speed, time remaining, fullscreen, PiP and mini player.</p></article>',
+  '      <article class="feature"><span class="feature-number">05.</span><h3>FLEXIBLE CONTROLS</h3><p>Ten-second skipping, playback speed, time remaining, fullscreen and PiP.</p></article>',
   '      <article class="feature"><span class="feature-number">06.</span><h3>OPTIONAL WATERMARK</h3><p>Enable or disable a lightweight overlay. Designed for identification, not DRM.</p></article>',
   '    </div>',
   '  </section>',
@@ -71,12 +72,12 @@ let player: SecureStreamPlayer | undefined;
 function startDemo(): void {
   player?.destroy();
   const custom = input.value.trim();
-  const source = custom || (selector.value === 'hls' ? HLS_DEMO : MP4_DEMO);
+  const source = custom || (selector.value === 'multitrack' ? MULTITRACK_DEMO : selector.value === 'hls' ? HLS_DEMO : MP4_DEMO);
   player = new SecureStreamPlayer({
     container: videoContainer,
     id: 'demo:' + source,
     src: source,
-    title: selector.value === 'hls' ? 'Big Buck Bunny · Sample Film' : 'Flower · Sample Clip',
+    title: custom ? 'Custom stream' : selector.value === 'multitrack' ? 'Angel One · Multilingual Sample' : selector.value === 'hls' ? 'Big Buck Bunny · Sample Film' : 'Flower · Sample Clip',
     poster: !custom && selector.value === 'hls' ? './demo-poster.jpg' : undefined,
     watermark: { text: 'SECURESTREAM / DEMO', enabled: false },
   });

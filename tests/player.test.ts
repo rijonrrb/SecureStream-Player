@@ -104,6 +104,68 @@ describe('SecureStreamPlayer', () => {
     host.querySelector<HTMLButtonElement>('[data-action="close-menu"]')!.click();
     expect(menu.hidden).toBe(true);
   });
+  it('provides independent audio and subtitle popovers without the mini player', () => {
+    player = setup();
+    expect(host.querySelector('[data-action="mini"]')).toBeNull();
+    const advanced = host.querySelector<HTMLElement>('.ssp-settings')!;
+    const captions = host.querySelector<HTMLButtonElement>('[data-action="captions-menu"]')!;
+    const audio = host.querySelector<HTMLButtonElement>('[data-action="audio-menu"]')!;
+    captions.click();
+    expect(advanced.hidden).toBe(true);
+    expect(host.querySelector<HTMLElement>('[data-quick="captions"]')!.hidden).toBe(false);
+    expect(host.querySelector('[data-quick="captions"]')!.textContent).toContain('No subtitles available');
+    audio.click();
+    expect(host.querySelector<HTMLElement>('[data-quick="captions"]')!.hidden).toBe(true);
+    expect(host.querySelector<HTMLElement>('[data-quick="audio"]')!.hidden).toBe(false);
+    expect(host.querySelector('[data-quick="audio"]')!.textContent).toContain('No alternate audio languages');
+    expect(advanced.hidden).toBe(true);
+    host.querySelector<HTMLButtonElement>('[data-action="menu"]')!.click();
+    expect(host.querySelector<HTMLElement>('[data-quick="audio"]')!.hidden).toBe(true);
+    expect(advanced.hidden).toBe(false);
+  });
+  it('offers actual embedded text tracks in the subtitle popover', () => {
+    const fakeTracks = [{ kind: 'subtitles', label: 'English', language: 'en', mode: 'disabled' }];
+    Object.defineProperty(HTMLMediaElement.prototype, 'textTracks', { configurable: true, get: () => fakeTracks });
+    player = setup();
+    const video = host.querySelector('video')!;
+    video.dispatchEvent(new Event('loadedmetadata'));
+    host.querySelector<HTMLButtonElement>('[data-action="captions-menu"]')!.click();
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('[data-quick="captions"] .ssp-quick-option')];
+    expect(buttons.map(b => b.textContent)).toEqual(['Off', 'English']);
+    buttons[1].click();
+    expect(fakeTracks[0].mode).toBe('showing');
+    expect(host.querySelector<HTMLElement>('[data-quick="captions"]')!.hidden).toBe(true);
+  });
+  it('presents actual alternate audio tracks and switches the selected language', () => {
+    player = setup();
+    const mockHls = { audioTracks: [
+      { name: 'stream_5', lang: 'en' },
+      { name: 'stream_4', lang: 'de' },
+    ], audioTrack: 0, destroy: vi.fn() };
+    (player as any).hls = mockHls;
+    (player as any).refreshAudio();
+    host.querySelector<HTMLButtonElement>('[data-action="audio-menu"]')!.click();
+    const options = [...host.querySelectorAll<HTMLButtonElement>('[data-quick="audio"] .ssp-quick-option')];
+    expect(options.map(o => o.textContent)).toEqual(['English','German']);
+    options[1].click();
+    expect(mockHls.audioTrack).toBe(1);
+    expect(host.querySelector<HTMLSelectElement>('[data-role="audio"]')!.value).toBe('1');
+  });
+  it('does not disable hls.js managed text tracks after selecting an HLS subtitle', () => {
+    const managedTracks = [{ kind: 'subtitles', label: 'Internal HLS', language: 'en', mode: 'showing' }];
+    Object.defineProperty(HTMLMediaElement.prototype, 'textTracks', { configurable: true, get: () => managedTracks });
+    player = setup();
+    const mockHls = { subtitleTracks: [{ name: 'stream_0', lang: 'en' }], subtitleDisplay: false, subtitleTrack: -1, destroy: vi.fn() };
+    (player as any).hls = mockHls;
+    (player as any).refreshCaptions();
+    host.querySelector<HTMLButtonElement>('[data-action="captions-menu"]')!.click();
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('[data-quick="captions"] .ssp-quick-option')];
+    expect(buttons.map(button => button.textContent)).toEqual(['Off','English']);
+    buttons[1].click();
+    expect(mockHls.subtitleTrack).toBe(0);
+    expect(mockHls.subtitleDisplay).toBe(true);
+    expect(managedTracks[0].mode).toBe('showing');
+  });
   it('toggles elapsed/full duration to time remaining', () => {
     player = setup();
     const video = host.querySelector('video')!;
