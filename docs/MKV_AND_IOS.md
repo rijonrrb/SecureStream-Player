@@ -1,40 +1,42 @@
-# MKV video sources and iPhone fullscreen
+# Original MKV and Browser Playback — SecureStream v0.3
 
-## MKV is an ingest format, not a universally supported browser format
+## Direct original MKV support
 
-SecureStream accepts an MKV original when you supply a separate, browser-compatible MP4 or HLS rendition. This avoids sending multi-gigabyte MKV files into unsupported browser decoders.
+SecureStream uses native HTML5 video and HLS by default. For original Matroska and legacy containers, it lazy-loads an extra WebCodecs/FFmpeg-WASM engine. That engine reads compressed video/audio bytes straight from your original file URL using HTTP byte-range requests. **No video re-encoding or file conversion occurs in the player.**
 
 ```ts
 new SecureStreamPlayer({
-  container: document.getElementById('video-player')!,
-  id: 'video-123',
-  src: 'https://cdn.example.com/original.mkv',
-  fallbackSrc: 'https://cdn.example.com/prepared.mp4',
+  container: document.getElementById('player')!,
+  id: 'original-film',
+  src: 'https://example.com/authorized-film.mkv',
+  title: 'Original-quality stream',
 });
 ```
 
-The library selects the web-ready source and preserves the original on storage. Without a fallback, it displays a clear message explaining why an MKV cannot play. It never guesses a signed CDN URL. The player itself does **not** convert an MKV within a browser.
+The build produces `dist-lib/securestream.js`, `dist-lib/securestream.css`, and `dist-lib/movi-element.js`. **Host all three side by side.** The extra decoder script (approximately 12 MB) is downloaded only for MKV and legacy formats.
 
-### Preparing MKV files
+MKV, MKA, AVI, FLV, MOV, MPEG-TS and related formats go through the original-container decoder. MP4, M4A, MP3, WebM and HLS still use HTMLVideoElement/hls.js where compatible. Additional formats or unsupported codecs may fail; extension support is not a guarantee that every unusual codec/profile will decode on every device.
 
-Use FFmpeg on your trusted upload workstation. Remux an already compatible H.264/yuv420p stream without re-encoding to retain quality:
+## Requirements
 
-```sh
-ffmpeg -i source.mkv -map 0:v:0 -map 0:a? -c:v copy -c:a aac -movflags +faststart output.mp4
-```
+- Storage returns HTTP 206 for `Range: bytes=...` requests and advertises appropriate Content-Type.
+- For R2, use S3-compatible multipart upload and a CORS policy that permits the Screenroom site to request GET, HEAD and Range. Serve private assets through signed URLs.
+- Decoding speed depends on browser hardware/WebCodecs, codec/profile and available memory. FFmpeg-WASM fallback may be CPU intensive.
+- Embedded MKV audio/subtitle tracks are exposed via the original-container player's own UI. HLS offers alternate audio and text track controls.
+- For iPhone, the standard HTML video engine retains native WebKit fullscreen support. Canvas-based MKV playback may not support the same native fullscreen behavior; physical-device verification is required.
 
-For incompatible HEVC/AV1 video on iPhones without support, transcode to H.264 with the original spatial resolution (no scaling):
+## Direct Cloudflare R2 upload
 
-```sh
-ffmpeg -i source.mkv -map 0:v:0 -map 0:a? -c:v libx264 -crf 18 -preset medium -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart output.mp4
-```
+The Screenroom Desktop `SCREENROOM - Upload Video.bat` accepts MKV, MP4, WebM, MOV, AVI, MPEG-TS, MP3, FLAC, WAV and other supported extensions. It no longer automatically converts MKV to MP4. The uploaded object retains its exact input bytes and extension. Attach the matching R2 object key and format in Screenroom Studio.
 
-These commands preserve the available audio streams as tracks in MP4; note that some browsers **do not expose** native multiple MP4 audio tracks. For reliable audio-language switching across browsers, serve HLS master playlists with distinct alternate audio tracks. Similarly, export text subtitle tracks as WebVTT or HLS subtitles; bitmap-based MKV subtitle tracks cannot simply become WebVTT.
+## Optional lossless remux
 
-The SCREENROOM Desktop uploader accepts MKV/MP4/MOV/WebM and prepares a browser MP4 before Cloudflare R2 upload. The server attaches the resulting MP4 object key to titles; the backend does not serve raw MKV in the MP4 route.
+The `SCREENROOM - Convert MKV to MP4.bat` uses FFmpeg stream copy (`-c copy`) to change container without re-encoding video/audio. It neither rescales nor adjusts compression quality. If a codec cannot fit in MP4 with stream copy, conversion fails clearly instead of lowering quality. Its MP4 does not include MKV-only subtitle/attachment tracks; use the original MKV for full-track preservation.
 
-## iPhone Safari and Chrome fullscreen
+## Verification
 
-Apple iPhone WebKit does not support fullscreen on arbitrary container elements. The player calls `video.webkitEnterFullscreen()` directly from the user's fullscreen click gesture and returns to custom inline controls via `webkitendfullscreen`. The Apple-native fullscreen interface replaces custom overlay controls while active. On desktop/Android/iPad the player prefers fullscreen on the entire player container.
+A synthetic MKV containing H.264 video and separate English/Bangla AAC audio tracks was uploaded as original MKV to Cloudflare R2 with HTTP 206 response. Headless Chrome successfully loaded it through the WebCodecs/WASM decoder, detected three tracks and played through its full 4-second duration. This does **not** guarantee that a specific 2–3 GB HEVC/DTS movie plays on every phone or browser.
 
-This logic is covered by jsdom mock regression tests. **Physical iPhone Safari and iOS Chrome verification is still required** to confirm the runtime device/browser behavior.
+## Third-party attribution
+
+The optional original-container decoder uses [movi-player](https://github.com/mrujjwalg/movi-player), licensed Apache-2.0 (Copyright Ujjawal Kashyap). SecureStream's own code remains MIT.

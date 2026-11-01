@@ -104,3 +104,10 @@
   .ssp-top { padding-top:max(8px,env(safe-area-inset-top)); }
   .ssp-bottom { padding-bottom:max(8px,env(safe-area-inset-bottom)); }
 }
+
+/* Original MKV and legacy containers use the dedicated on-demand WebCodecs/WASM engine. */
+.ssp-universal .ssp-overlay, .ssp-universal .ssp-center-play, .ssp-universal .ssp-preview { display:none !important; }
+.ssp-universal .ssp-stage { position:relative; }
+.ssp-universal movi-player { position:absolute; inset:0; display:block; width:100%; height:100%; background:#050506; z-index:3; }
+.ssp-universal .ssp-watermark { z-index:5; pointer-events:none; }
+.ssp-universal .ssp-notice { z-index:6; pointer-events:none; }

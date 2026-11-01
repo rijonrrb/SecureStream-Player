@@ -9,7 +9,7 @@ export type PlayerOptions = {
   container: HTMLElement;
   id: string;
   src: string;
-  /** Browser-compatible MP4 or HLS URL produced from an MKV source. Required for MKV on browsers without Matroska support. */
+  /** Optional browser-compatible source, used only when explicitly provided. Original MKV is otherwise decoded without altering the file. */
   fallbackSrc?: string;
   title?: string;
   poster?: string;
@@ -32,6 +32,24 @@ type NativeAudioTracks = { length: number; [index: number]: NativeAudioTrack; ad
 const PROGRESS_PREFIX = 'securestream:progress:';
 const PREFERENCES_KEY = 'securestream:preferences:v1';
 const RETRIES = 3;
+let originalEngineLoader: Promise<void> | undefined;
+function ensureOriginalMediaEngine(): Promise<void> {
+  if (customElements.get('movi-player')) return Promise.resolve();
+  if (!originalEngineLoader) {
+    originalEngineLoader = new Promise<void>((resolve, reject) => {
+      const script = document.createElement('script');
+      // The upstream classic/global bundle embeds its WASM. The ESM entry in v0.4.1
+      // references a CommonJS exports binding in browsers, so use its documented global build.
+      script.src = new URL('./movi-element.js', import.meta.url).href;
+      script.async = true;
+      script.onload = () => customElements.get('movi-player') ? resolve() : reject(new Error('Original-media engine did not register'));
+      script.onerror = () => reject(new Error('Failed to load original-media engine'));
+      document.head.appendChild(script);
+    }).catch(error => { originalEngineLoader = undefined; throw error; });
+  }
+  return originalEngineLoader;
+}
+
 
 const svgIcon = (path: string): string => '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
 const ICON = {
@@ -74,6 +92,9 @@ export class SecureStreamPlayer {
   private readonly playButton: HTMLButtonElement;
   private readonly muteButton: HTMLButtonElement;
   private hls?: Hls;
+  private universal?: HTMLElement;
+  private universalDestroyed = false;
+  private attemptedCodecFallback = false;
   private readonly externalSubtitleElements: HTMLTrackElement[] = [];
   private networkRetries = 0;
   private mediaRetries = 0;
@@ -274,7 +295,13 @@ export class SecureStreamPlayer {
       this.persistProgress();
     });
     this.video.addEventListener('ended', () => this.removeProgress());
-    this.video.addEventListener('error', () => this.showNotice('Playback error. Check the video URL and browser codec support.'));
+    this.video.addEventListener('error', () => {
+      // Unsupported codec inside MP4/M4A: try the original-media engine without transcoding.
+      if (!this.hls && !this.universal && !this.attemptedCodecFallback && this.video.error?.code === 4) {
+        this.attemptedCodecFallback = true;
+        void this.mountUniversalMedia(this.options.src);
+      } else this.showNotice('Playback error. Check the media URL and decoder support.');
+    });
     this.video.addEventListener('volumechange', () => this.updateMuteLabel());
     this.watermarkToggle.addEventListener('change', () => this.setWatermark(this.watermarkToggle.checked));
     this.theme.addEventListener('change', () => { this.root.dataset.theme = this.theme.value; });
@@ -397,12 +424,14 @@ export class SecureStreamPlayer {
   }
 
   private loadSource(): void {
-    // Matroska is an upload/container format, not a portable HTML5 browser delivery format.
-    // Prefer the specifically provided web-compatible rendition rather than guessing a signed URL.
-    const isMkv = /\.mkv(?:$|[?#])/i.test(this.options.src);
-    const source = isMkv ? this.options.fallbackSrc : this.options.src;
-    if (!source || /\.mkv(?:$|[?#])/i.test(source)) {
-      this.showNotice('MKV needs a browser-compatible MP4 or HLS rendition. Convert/remux the MKV and supply fallbackSrc.');
+    const original = this.options.src;
+    const isMkv = /\.(?:mkv|mka)(?:$|[?#])/i.test(original);
+    // A caller-supplied fallback remains supported, but raw MKV works without it.
+    const source = isMkv && this.options.fallbackSrc ? this.options.fallbackSrc : original;
+    const pathname = (() => { try { return new URL(source, document.baseURI).pathname.toLowerCase(); } catch { return source.split('?')[0].toLowerCase(); } })();
+    const universal = /\.(?:mkv|mka|avi|flv|wmv|mov|m2ts|mts|ts|mpg|mpeg|3gp|ogv|flac|ape)$/.test(pathname);
+    if (universal) {
+      void this.mountUniversalMedia(source);
       return;
     }
     const isHls = /\.m3u8(?:$|[?#])/i.test(source);
@@ -452,6 +481,50 @@ export class SecureStreamPlayer {
       if (isHls && !this.video.canPlayType('application/vnd.apple.mpegurl')) {
         this.showNotice('This browser cannot play HLS. Please try another browser.');
       }
+    }
+  }
+
+  /** On-demand native-file engine. Matroska bytes stay byte-for-byte unchanged on R2. */
+  private async mountUniversalMedia(source: string): Promise<void> {
+    this.notice.textContent = 'Loading original media container…';
+    try {
+      // Separate module (~12 MB) loads ONLY for MKV/legacy containers.
+      await ensureOriginalMediaEngine();
+      if (this.universalDestroyed || !this.root.isConnected) return;
+      if (!customElements.get('movi-player')) throw Error('Additional playback engine did not register.');
+      const el = document.createElement('movi-player');
+      el.setAttribute('src', source);
+      el.setAttribute('controls', '');
+      el.setAttribute('showtitle', '');
+      if (this.options.title) el.setAttribute('title', this.options.title);
+      if (this.options.poster) el.setAttribute('poster', this.options.poster);
+      if (this.options.autoPlay) el.setAttribute('autoplay', '');
+      if (this.options.muted) el.setAttribute('muted', '');
+      el.setAttribute('aria-label', this.options.title || 'Media player');
+      this.video.removeAttribute('src');
+      this.video.style.display = 'none';
+      this.root.classList.add('ssp-universal');
+      this.root.querySelector('.ssp-stage')?.appendChild(el);
+      this.universal = el;
+      this.notice.textContent = '';
+      const media = el as HTMLElement & {currentTime?: number;duration?:number};
+      el.addEventListener('timeupdate', () => {
+        const time = Number(media.currentTime);
+        if (Number.isFinite(time) && time >= 0 && Math.floor(time) !== this.lastSavedSecond) {
+          this.lastSavedSecond = Math.floor(time);
+          this.storageSet(PROGRESS_PREFIX + this.options.id, String(this.lastSavedSecond));
+        }
+      });
+      el.addEventListener('loadedmetadata', () => {
+        if (this.restored) return;
+        this.restored = true;
+        const saved = Number(this.storageGet(PROGRESS_PREFIX + this.options.id) || '0');
+        if (saved > 0 && saved < Number(media.duration || Infinity) - 10) media.currentTime = saved;
+      });
+      el.addEventListener('error', () => this.showNotice('This container or codec cannot be decoded on this device. Your original file remains unchanged.'));
+    } catch (error) {
+      console.error('SecureStream original-media engine:', error);
+      if (!this.universalDestroyed) this.showNotice('Original-media engine could not load. Check the decoder module or your connection.');
     }
   }
 
@@ -743,6 +816,9 @@ export class SecureStreamPlayer {
     } catch { this.showNotice('Picture-in-Picture could not start.'); }
   }
   public destroy(): void {
+    this.universalDestroyed = true;
+    (this.universal as (HTMLElement & {destroy?:()=>void}) | undefined)?.destroy?.();
+    this.universal?.remove();
     if (Number.isFinite(this.video.currentTime) && this.video.currentTime > 0 && Number.isFinite(this.video.duration) && this.video.duration - this.video.currentTime >= 15) {
       this.storageSet(PROGRESS_PREFIX + this.options.id, String(Math.floor(this.video.currentTime)));
     }
