@@ -645,7 +645,7 @@ export class SecureStreamPlayer {
   private trackLabel(name: string | undefined, language: string | undefined, fallback: string): string {
     // Some demo playlists use generic labels like stream_5; show a useful language name.
     if (name && !/^stream[_ -]?\d+$/i.test(name)) return name;
-    if (language) {
+    if (language && !/^(und|mul|zxx)$/i.test(language)) {
       try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(language) || language; }
       catch { return language; }
     }
