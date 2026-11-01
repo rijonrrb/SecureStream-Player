@@ -14,6 +14,10 @@ export type PlayerOptions = {
   title?: string;
   poster?: string;
   watermark?: { text: string; enabled?: boolean };
+  /** Hide watermark settings in consumer-facing embeds without removing the plugin feature. */
+  showWatermarkControl?: boolean;
+  /** Decode original MP4 containers with multi-track support, at the cost of a lazy-loaded WASM engine. */
+  preferOriginalMediaEngine?: boolean;
   subtitles?: StreamSubtitle[];
   thumbnails?: ThumbnailSprite;
   autoPlay?: boolean;
@@ -101,6 +105,35 @@ export class SecureStreamPlayer {
   private lastSavedSecond = -1;
   private restored = false;
   private nativeFullscreenControls = false;
+  private noticeTimer?: number;
+  private controlTimer?: number;
+  private seekTimer?: number;
+  private seekingUI = false;
+  private readonly onFullscreenChange = (): void => this.revealControls();
+  private revealControls(): void {
+    this.root.classList.remove('ssp-idle');
+    this.root.style.cursor = '';
+    if(this.controlTimer !== undefined)window.clearTimeout(this.controlTimer);
+    if(document.fullscreenElement === this.root && !this.video.paused){
+      this.controlTimer=window.setTimeout(()=>{
+        if(document.fullscreenElement !== this.root || this.video.paused || !this.settings.hidden || !this.quickAudio.hidden || !this.quickCaptions.hidden)return;
+        this.root.classList.add('ssp-idle');
+        this.root.style.cursor = 'none';
+      },3300);
+    }
+  }
+  private applySeek(): void {
+    const duration=this.video.duration;
+    if(!Number.isFinite(duration)||duration<=0)return;
+    const target=Math.max(0,Math.min(duration,Number(this.seek.value)/1000*duration));
+    if(Math.abs(this.video.currentTime-target)<0.3)return;
+    this.seekingUI=true;
+    this.root.classList.add('ssp-buffering');
+    if(this.seekTimer!==undefined)window.clearTimeout(this.seekTimer);
+    this.seekTimer=window.setTimeout(()=>{this.seekingUI=false;this.updateProgress();this.root.classList.remove('ssp-buffering');},8000);
+    try{this.video.currentTime=target;}
+    catch{this.seekingUI=false;this.root.classList.remove('ssp-buffering');this.showNotice('Unable to seek at this position.');}
+  }
   private readonly onNativeFullscreenEnd = (): void => {
     if (this.nativeFullscreenControls) {
       this.video.controls = false;
@@ -108,6 +141,7 @@ export class SecureStreamPlayer {
     }
   };
   private readonly onKeyDown = (event: KeyboardEvent): void => {
+    this.revealControls();
     const element = event.target as HTMLElement;
     if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(element.tagName)) return;
     const action: Record<string, () => void> = {
@@ -146,6 +180,7 @@ export class SecureStreamPlayer {
       '  <video class="ssp-video" playsinline preload="metadata" crossorigin="anonymous"></video>',
       '  <div class="ssp-watermark" aria-hidden="true"></div>',
       '  <div class="ssp-notice" role="status" aria-live="polite"></div>',
+      '  <div class="ssp-buffer-spinner" aria-hidden="true"></div>',
       '  <div class="ssp-preview" aria-hidden="true"></div>',
       '  <button class="ssp-center-play" data-action="play" aria-label="Play video">▶</button>',
       '  <div class="ssp-overlay">',
@@ -253,6 +288,10 @@ export class SecureStreamPlayer {
     }
     this.watermarkToggle.checked = !this.watermark.hidden;
     this.watermarkToggle.disabled = !options.watermark?.text;
+    if(options.showWatermarkControl===false) {
+      const row=this.watermarkToggle.closest('label');
+      if(row)row.hidden=true;
+    }
     this.root.dataset.display = 'fit';
     this.root.dataset.theme = 'cinema';
     const preferences = this.readPreferences();
@@ -271,6 +310,9 @@ export class SecureStreamPlayer {
 
   private attachEvents(): void {
     this.root.addEventListener('keydown', this.onKeyDown);
+    this.root.addEventListener('pointermove',()=>this.revealControls());
+    this.root.addEventListener('pointerdown',()=>this.revealControls());
+    document.addEventListener('fullscreenchange',this.onFullscreenChange);
     this.root.addEventListener('pointerdown', (event) => {
       const target = event.target as Node;
       if (!this.settings.hidden && !this.settings.contains(target) && !this.menuButton.contains(target)) this.closeMenu();
@@ -282,8 +324,8 @@ export class SecureStreamPlayer {
       button.addEventListener('click', () => this.handleAction(button.dataset.action || ''));
     });
     this.video.addEventListener('click', () => this.togglePlay());
-    this.video.addEventListener('play', () => this.updatePlayLabel());
-    this.video.addEventListener('pause', () => this.updatePlayLabel());
+    this.video.addEventListener('play', () => {this.updatePlayLabel();this.revealControls();});
+    this.video.addEventListener('pause', () => {this.updatePlayLabel();this.revealControls();this.root.classList.remove('ssp-buffering');});
     this.video.addEventListener('loadedmetadata', () => {
       this.restorePosition();
       this.refreshCaptions();
@@ -294,7 +336,18 @@ export class SecureStreamPlayer {
       this.updateProgress();
       this.persistProgress();
     });
-    this.video.addEventListener('ended', () => this.removeProgress());
+    this.video.addEventListener('ended', () => {this.removeProgress();this.revealControls();});
+    this.video.addEventListener('waiting',()=>this.root.classList.add('ssp-buffering'));
+    this.video.addEventListener('seeking',()=>this.root.classList.add('ssp-buffering'));
+    for(const name of ['seeked','canplay','playing','error']){
+      this.video.addEventListener(name,()=>{
+        if(name==='seeked'){
+          this.seekingUI=false;if(this.seekTimer!==undefined)window.clearTimeout(this.seekTimer);
+          this.updateProgress();
+        }
+        this.root.classList.remove('ssp-buffering');
+      });
+    }
     this.video.addEventListener('error', () => {
       // Unsupported codec inside MP4/M4A: try the original-media engine without transcoding.
       if (!this.hls && !this.universal && !this.attemptedCodecFallback && this.video.error?.code === 4) {
@@ -305,14 +358,9 @@ export class SecureStreamPlayer {
     this.video.addEventListener('volumechange', () => this.updateMuteLabel());
     this.watermarkToggle.addEventListener('change', () => this.setWatermark(this.watermarkToggle.checked));
     this.theme.addEventListener('change', () => { this.root.dataset.theme = this.theme.value; });
-    this.seek.addEventListener('input', () => this.updatePreview());
-    this.seek.addEventListener('change', () => {
-      const duration = this.video.duration;
-      if (Number.isFinite(duration) && duration > 0) {
-        this.video.currentTime = Number(this.seek.value) / 1000 * duration;
-      }
-      this.preview.classList.remove('ssp-visible');
-    });
+    // Clicking once must request a seek immediately, not only after a delayed change event.
+    this.seek.addEventListener('input', () => {this.updatePreview();this.applySeek();});
+    this.seek.addEventListener('change', () => {this.applySeek();this.preview.classList.remove('ssp-visible');});
     this.volume.addEventListener('input', () => {
       this.video.volume = Number(this.volume.value);
       this.video.muted = this.video.volume === 0;
@@ -323,6 +371,8 @@ export class SecureStreamPlayer {
       this.savePreferences();
     });
     this.displayMode.addEventListener('change', () => this.setDisplayMode(this.displayMode.value as DisplayMode));
+    this.quality.replaceChildren(new Option('Original (single quality)','source'));
+    this.quality.disabled=true;
     this.quality.addEventListener('change', () => {
       if (!this.hls) return;
       // nextLevel changes on a fragment boundary instead of flushing the currently playing buffer.
@@ -429,7 +479,7 @@ export class SecureStreamPlayer {
     // A caller-supplied fallback remains supported, but raw MKV works without it.
     const source = isMkv && this.options.fallbackSrc ? this.options.fallbackSrc : original;
     const pathname = (() => { try { return new URL(source, document.baseURI).pathname.toLowerCase(); } catch { return source.split('?')[0].toLowerCase(); } })();
-    const universal = /\.(?:mkv|mka|avi|flv|wmv|mov|m2ts|mts|ts|mpg|mpeg|3gp|ogv|flac|ape)$/.test(pathname);
+    const universal = /\.(?:mkv|mka|avi|flv|wmv|mov|m2ts|mts|ts|mpg|mpeg|3gp|ogv|flac|ape)$/.test(pathname) || (this.options.preferOriginalMediaEngine === true && /\.mp4$/.test(pathname));
     if (universal) {
       void this.mountUniversalMedia(source);
       return;
@@ -508,6 +558,11 @@ export class SecureStreamPlayer {
       this.universal = el;
       this.notice.textContent = '';
       const media = el as HTMLElement & {currentTime?: number;duration?:number};
+      el.addEventListener('seeking',()=>this.root.classList.add('ssp-buffering'));
+      el.addEventListener('seeked',()=>this.root.classList.remove('ssp-buffering'));
+      el.addEventListener('waiting',()=>this.root.classList.add('ssp-buffering'));
+      el.addEventListener('playing',()=>this.root.classList.remove('ssp-buffering'));
+      el.addEventListener('loadeddata',()=>this.root.classList.remove('ssp-buffering'));
       el.addEventListener('timeupdate', () => {
         const time = Number(media.currentTime);
         if (Number.isFinite(time) && time >= 0 && Math.floor(time) !== this.lastSavedSecond) {
@@ -655,7 +710,7 @@ export class SecureStreamPlayer {
   private updateProgress(): void {
     const duration = this.video.duration;
     const current = this.video.currentTime;
-    if (Number.isFinite(duration) && duration > 0) {
+    if (!this.seekingUI && Number.isFinite(duration) && duration > 0) {
       this.seek.value = String(Math.min(1000, Math.max(0, Math.round(current / duration * 1000))));
     }
     const total = Number.isFinite(duration) ? duration : 0;
@@ -732,7 +787,9 @@ export class SecureStreamPlayer {
     if (center) { center.hidden = playing; center.innerHTML = ICON.play; }
   }
   private showNotice(message: string): void {
-    this.notice.textContent = message;
+    if(this.noticeTimer!==undefined)window.clearTimeout(this.noticeTimer);
+    this.notice.textContent=message;
+    this.noticeTimer=window.setTimeout(()=>{if(this.notice.textContent===message)this.notice.textContent='';},3000);
   }
   private async tryPlay(): Promise<void> {
     try { await this.video.play(); } catch { this.showNotice('Press play to start playback.'); }
@@ -823,6 +880,10 @@ export class SecureStreamPlayer {
       this.storageSet(PROGRESS_PREFIX + this.options.id, String(Math.floor(this.video.currentTime)));
     }
     this.root.removeEventListener('keydown', this.onKeyDown);
+    document.removeEventListener('fullscreenchange',this.onFullscreenChange);
+    if(this.noticeTimer!==undefined)window.clearTimeout(this.noticeTimer);
+    if(this.controlTimer!==undefined)window.clearTimeout(this.controlTimer);
+    if(this.seekTimer!==undefined)window.clearTimeout(this.seekTimer);
     this.video.removeEventListener('webkitendfullscreen', this.onNativeFullscreenEnd);
     this.hls?.destroy();
     this.video.pause();

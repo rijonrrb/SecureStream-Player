@@ -111,3 +111,12 @@
 .ssp-universal movi-player { position:absolute; inset:0; display:block; width:100%; height:100%; background:#050506; z-index:3; }
 .ssp-universal .ssp-watermark { z-index:5; pointer-events:none; }
 .ssp-universal .ssp-notice { z-index:6; pointer-events:none; }
+
+/* Fullscreen cinematic controls: activity reveals them, inactivity fades them. */
+.ssp-player:fullscreen.ssp-idle .ssp-top,.ssp-player:fullscreen.ssp-idle .ssp-bottom,
+.ssp-player:-webkit-full-screen.ssp-idle .ssp-top,.ssp-player:-webkit-full-screen.ssp-idle .ssp-bottom{opacity:0;pointer-events:none}
+.ssp-player:fullscreen .ssp-top,.ssp-player:fullscreen .ssp-bottom{transition:opacity .22s ease}
+.ssp-buffer-spinner{position:absolute;top:50%;left:50%;z-index:7;width:38px;height:38px;border:3px solid #ffffff50;border-top-color:#fff;border-radius:50%;transform:translate(-50%,-50%);display:none;pointer-events:none}
+.ssp-player.ssp-buffering .ssp-buffer-spinner{display:block;animation:ssp-spin 1s linear infinite}
+@keyframes ssp-spin{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+.ssp-settings label[hidden]{display:none!important}
