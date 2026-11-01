@@ -264,4 +264,45 @@ describe('SecureStreamPlayer', () => {
     delete (HTMLVideoElement.prototype as HTMLVideoElement & {audioTracks?:unknown}).audioTracks;
   });
 
+
+  it('hides the watermark setting for Screenroom without removing plugin support', () => {
+    player = new SecureStreamPlayer({
+      container: host, id:'site',src:'https://example.org/video.mp4',
+      watermark:{text:'TEST',enabled:false},showWatermarkControl:false,
+    });
+    expect(host.querySelector('[data-role="watermark"]')!.closest('label')!.hidden).toBe(true);
+    player.setWatermark(true);
+    expect(host.querySelector<HTMLElement>('.ssp-watermark')!.hidden).toBe(false);
+  });
+  it('seeks on the first range input and indicates buffering until seeked', () => {
+    player=setup();
+    const video=host.querySelector('video')!;
+    Object.defineProperty(video,'duration',{configurable:true,value:180});
+    const slider=host.querySelector<HTMLInputElement>('[data-role="seek"]')!;
+    slider.value='500';slider.dispatchEvent(new Event('input'));
+    expect(video.currentTime).toBe(90);
+    expect(host.querySelector('.ssp-player')!.classList.contains('ssp-buffering')).toBe(true);
+    video.dispatchEvent(new Event('seeked'));
+    expect(host.querySelector('.ssp-player')!.classList.contains('ssp-buffering')).toBe(false);
+  });
+  it('labels single-file playback Original rather than suggesting missing quality renditions', () => {
+    player=setup();
+    const quality=host.querySelector<HTMLSelectElement>('[data-role="quality"]')!;
+    expect(quality.disabled).toBe(true);
+    expect(quality.selectedOptions[0]?.textContent).toContain('Original');
+  });
+  it('automatically hides a resumed playback notice after three seconds', () => {
+    vi.useFakeTimers();
+    try {
+      localStorage.setItem('securestream:progress:resume','42');
+      player=setup('resume');
+      const video=host.querySelector('video')!;
+      Object.defineProperty(video,'duration',{configurable:true,value:180});
+      video.dispatchEvent(new Event('loadedmetadata'));
+      expect(host.querySelector('.ssp-notice')!.textContent).toContain('Resumed at');
+      vi.advanceTimersByTime(3000);
+      expect(host.querySelector('.ssp-notice')!.textContent).toBe('');
+    } finally {vi.useRealTimers();}
+  });
+
 });
