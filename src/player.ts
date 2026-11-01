@@ -96,7 +96,16 @@ export class SecureStreamPlayer {
   private readonly playButton: HTMLButtonElement;
   private readonly muteButton: HTMLButtonElement;
   private hls?: Hls;
-  private universal?: HTMLElement;
+  private universal?: HTMLElement & { player?: {
+    getTracks: () => Array<{ id: number; type: string; language?: string; codec?: string }>;
+    selectAudioTrack: (id: number) => boolean;
+    selectSubtitleTrack: (id: number | null) => Promise<boolean>;
+  }; currentTime: number; duration: number; paused: boolean; playbackRate: number; volume: number; muted: boolean;
+    play: () => Promise<void>; pause: () => void };
+  private activeUniversalAudioTrack: number | null = null;
+  private activeUniversalSubtitleTrack: number | null = null;
+  private universalTrackTimer?: number;
+  private media(): HTMLVideoElement { return (this.universal as unknown as HTMLVideoElement) || this.video; }
   private universalDestroyed = false;
   private attemptedCodecFallback = false;
   private readonly externalSubtitleElements: HTMLTrackElement[] = [];
@@ -114,24 +123,24 @@ export class SecureStreamPlayer {
     this.root.classList.remove('ssp-idle');
     this.root.style.cursor = '';
     if(this.controlTimer !== undefined)window.clearTimeout(this.controlTimer);
-    if(document.fullscreenElement === this.root && !this.video.paused){
+    if(document.fullscreenElement === this.root && !this.media().paused){
       this.controlTimer=window.setTimeout(()=>{
-        if(document.fullscreenElement !== this.root || this.video.paused || !this.settings.hidden || !this.quickAudio.hidden || !this.quickCaptions.hidden)return;
+        if(document.fullscreenElement !== this.root || this.media().paused || !this.settings.hidden || !this.quickAudio.hidden || !this.quickCaptions.hidden)return;
         this.root.classList.add('ssp-idle');
         this.root.style.cursor = 'none';
       },3300);
     }
   }
   private applySeek(): void {
-    const duration=this.video.duration;
+    const duration=this.media().duration;
     if(!Number.isFinite(duration)||duration<=0)return;
     const target=Math.max(0,Math.min(duration,Number(this.seek.value)/1000*duration));
-    if(Math.abs(this.video.currentTime-target)<0.3)return;
+    if(Math.abs(this.media().currentTime-target)<0.3)return;
     this.seekingUI=true;
     this.root.classList.add('ssp-buffering');
     if(this.seekTimer!==undefined)window.clearTimeout(this.seekTimer);
     this.seekTimer=window.setTimeout(()=>{this.seekingUI=false;this.updateProgress();this.root.classList.remove('ssp-buffering');},8000);
-    try{this.video.currentTime=target;}
+    try{this.media().currentTime=target;}
     catch{this.seekingUI=false;this.root.classList.remove('ssp-buffering');this.showNotice('Unable to seek at this position.');}
   }
   private readonly onNativeFullscreenEnd = (): void => {
@@ -362,12 +371,12 @@ export class SecureStreamPlayer {
     this.seek.addEventListener('input', () => {this.updatePreview();this.applySeek();});
     this.seek.addEventListener('change', () => {this.applySeek();this.preview.classList.remove('ssp-visible');});
     this.volume.addEventListener('input', () => {
-      this.video.volume = Number(this.volume.value);
-      this.video.muted = this.video.volume === 0;
+      this.media().volume = Number(this.volume.value);
+      this.media().muted = this.media().volume === 0;
       this.savePreferences();
     });
     this.speed.addEventListener('change', () => {
-      this.video.playbackRate = Number(this.speed.value);
+      this.media().playbackRate = Number(this.speed.value);
       this.savePreferences();
     });
     this.displayMode.addEventListener('change', () => this.setDisplayMode(this.displayMode.value as DisplayMode));
@@ -381,6 +390,15 @@ export class SecureStreamPlayer {
     });
     this.audio.addEventListener('change', () => {
       if (this.audio.value === '-1') return;
+      if (this.universal) {
+        const id = Number(this.audio.value.replace('original:', ''));
+        if (this.universal.player?.selectAudioTrack(id)) {
+          this.activeUniversalAudioTrack = id;
+          this.showNotice('Audio: ' + (this.audio.selectedOptions[0]?.textContent || 'Selected'));
+        } else this.showNotice('Audio track unavailable on this device.');
+        if (!this.quickAudio.hidden) this.renderQuickMenu('audio');
+        return;
+      }
       if (this.hls) {
         this.hls.audioTrack = Number(this.audio.value);
       } else {
@@ -461,7 +479,7 @@ export class SecureStreamPlayer {
       button.className = 'ssp-quick-option';
       button.textContent = option.textContent;
       const selected = type === 'audio'
-        ? option.value === String(this.hls ? this.hls.audioTrack : this.activeNativeAudioTrack())
+        ? option.value === (this.universal ? 'original:' + this.activeUniversalAudioTrack : String(this.hls ? this.hls.audioTrack : this.activeNativeAudioTrack()))
         : option.value === select.value;
       button.setAttribute('aria-pressed', String(selected));
       button.addEventListener('click', () => {
@@ -543,9 +561,10 @@ export class SecureStreamPlayer {
       if (this.universalDestroyed || !this.root.isConnected) return;
       if (!customElements.get('movi-player')) throw Error('Additional playback engine did not register.');
       const el = document.createElement('movi-player');
+      // Force WASM demux for MP4 with embedded multi-language audio and subtitles.
+      el.setAttribute('engine', 'wasm');
       el.setAttribute('src', source);
-      el.setAttribute('controls', '');
-      el.setAttribute('showtitle', '');
+      // SecureStream provides the complete UI; never render the decoder's controls.
       if (this.options.title) el.setAttribute('title', this.options.title);
       if (this.options.poster) el.setAttribute('poster', this.options.poster);
       if (this.options.autoPlay) el.setAttribute('autoplay', '');
@@ -555,7 +574,24 @@ export class SecureStreamPlayer {
       this.video.style.display = 'none';
       this.root.classList.add('ssp-universal');
       this.root.querySelector('.ssp-stage')?.appendChild(el);
-      this.universal = el;
+      this.universal = el as typeof this.universal;
+      this.universal!.volume = this.video.volume;
+      this.universal!.muted = this.video.muted;
+      this.universal!.playbackRate = this.video.playbackRate;
+      const updateTracks = () => { this.refreshAudio(); this.refreshCaptions(); };
+      this.universalTrackTimer = window.setInterval(updateTracks, 1300);
+      el.addEventListener('loadedmetadata', () => {
+        this.restoreUniversalPosition();
+        updateTracks();
+        this.updateProgress();
+      });
+      el.addEventListener('canplay', updateTracks);
+      el.addEventListener('timeupdate', () => { this.updateProgress(); this.persistProgress(); });
+      el.addEventListener('play', () => this.updatePlayLabel());
+      el.addEventListener('pause', () => this.updatePlayLabel());
+      el.addEventListener('ended', () => { this.removeProgress(); this.updatePlayLabel(); });
+      el.addEventListener('volumechange', () => this.updateMuteLabel());
+      this.updatePlayLabel();
       this.notice.textContent = '';
       const media = el as HTMLElement & {currentTime?: number;duration?:number};
       el.addEventListener('seeking',()=>this.root.classList.add('ssp-buffering'));
@@ -581,6 +617,15 @@ export class SecureStreamPlayer {
       console.error('SecureStream original-media engine:', error);
       if (!this.universalDestroyed) this.showNotice('Original-media engine could not load. Check the decoder module or your connection.');
     }
+  }
+
+  private restoreUniversalPosition(): void {
+    if (this.restored || !this.universal) return;
+    const saved = Number(this.storageGet(PROGRESS_PREFIX + this.options.id) || '0');
+    if (saved > 0 && saved < Number(this.universal.duration || Infinity) - 15) {
+      this.universal.currentTime = saved;
+    }
+    this.restored = true;
   }
 
   private updateLevels(): void {
@@ -621,6 +666,15 @@ export class SecureStreamPlayer {
   private refreshAudio(): void {
     const previous = this.audio.value;
     this.audio.replaceChildren(new Option('Default', '-1'));
+    if (this.universal) {
+      const tracks = this.universal.player?.getTracks().filter(t => t.type === 'audio') || [];
+      for (const track of tracks) this.audio.add(new Option(this.trackLabel('', track.language, 'Track ' + track.id), 'original:' + track.id));
+      this.audio.disabled = tracks.length < 2;
+      const active = 'original:' + (this.activeUniversalAudioTrack ?? tracks[0]?.id);
+      this.audio.value = [...this.audio.options].some(o => o.value === active) ? active : '-1';
+      if (!this.quickAudio.hidden) this.renderQuickMenu('audio');
+      return;
+    }
     if (this.hls) {
       this.hls.audioTracks.forEach((track, index) => {
         this.audio.add(new Option(this.trackLabel(track.name, track.lang, 'Track ' + (index + 1)), String(index)));
@@ -657,6 +711,15 @@ export class SecureStreamPlayer {
   private refreshCaptions(): void {
     const previous = this.captions.value;
     this.captions.replaceChildren(new Option('Off', 'off'));
+    if (this.universal) {
+      const tracks = this.universal.player?.getTracks().filter(t => t.type === 'subtitle') || [];
+      for (const track of tracks) this.captions.add(new Option(this.trackLabel('', track.language, 'Subtitle ' + track.id), 'original:' + track.id));
+      const active = this.activeUniversalSubtitleTrack === null ? 'off' : 'original:' + this.activeUniversalSubtitleTrack;
+      this.captions.value = [...this.captions.options].some(o => o.value === active) ? active : 'off';
+      this.captions.disabled = tracks.length === 0;
+      if (!this.quickCaptions.hidden) this.renderQuickMenu('captions');
+      return;
+    }
     this.hls?.subtitleTracks.forEach((track, index) => {
       this.captions.add(new Option(this.trackLabel(track.name, track.lang, 'Subtitle ' + (index + 1)), 'hls:' + index));
     });
@@ -681,6 +744,18 @@ export class SecureStreamPlayer {
 
   private changeCaptions(): void {
     const selected = this.captions.value;
+    if (this.universal) {
+      const id = selected === 'off' ? null : Number(selected.replace('original:', ''));
+      void this.universal.player?.selectSubtitleTrack(id).then(ok => {
+        if (ok) this.activeUniversalSubtitleTrack = id;
+        else {
+          this.activeUniversalSubtitleTrack = null;
+          this.captions.value = 'off';
+        }
+        this.showNotice(ok ? 'Subtitles: ' + (this.captions.selectedOptions[0]?.textContent || 'Off') : 'This subtitle codec is not supported.');
+      });
+      return;
+    }
     if (this.hls) {
       this.hls.subtitleDisplay = selected.startsWith('hls:');
       this.hls.subtitleTrack = selected.startsWith('hls:') ? Number(selected.split(':')[1]) : -1;
@@ -708,8 +783,8 @@ export class SecureStreamPlayer {
   }
 
   private updateProgress(): void {
-    const duration = this.video.duration;
-    const current = this.video.currentTime;
+    const duration = this.media().duration;
+    const current = this.media().currentTime;
     if (!this.seekingUI && Number.isFinite(duration) && duration > 0) {
       this.seek.value = String(Math.min(1000, Math.max(0, Math.round(current / duration * 1000))));
     }
@@ -719,7 +794,7 @@ export class SecureStreamPlayer {
   }
 
   private updatePreview(): void {
-    const duration = this.video.duration;
+    const duration = this.media().duration;
     if (!Number.isFinite(duration) || !duration) return;
     const seconds = Number(this.seek.value) / 1000 * duration;
     this.preview.textContent = this.formatTime(seconds);
@@ -750,15 +825,15 @@ export class SecureStreamPlayer {
     if (this.restored) return;
     this.restored = true;
     const saved = Number(this.storageGet(PROGRESS_PREFIX + this.options.id));
-    if (saved > 0 && Number.isFinite(this.video.duration) && saved < this.video.duration - 15) {
-      this.video.currentTime = saved;
+    if (saved > 0 && Number.isFinite(this.media().duration) && saved < this.media().duration - 15) {
+      this.media().currentTime = saved;
       this.showNotice('Resumed at ' + this.formatTime(saved));
     }
   }
   private persistProgress(): void {
-    const seconds = Math.floor(this.video.currentTime);
+    const seconds = Math.floor(this.media().currentTime);
     if (!Number.isFinite(seconds) || seconds === this.lastSavedSecond || seconds % 5 !== 0) return;
-    if (!Number.isFinite(this.video.duration) || this.video.duration - seconds < 15) return;
+    if (!Number.isFinite(this.media().duration) || this.media().duration - seconds < 15) return;
     this.lastSavedSecond = seconds;
     this.storageSet(PROGRESS_PREFIX + this.options.id, String(seconds));
   }
@@ -773,15 +848,15 @@ export class SecureStreamPlayer {
   }
   private savePreferences(): void {
     this.storageSet(PREFERENCES_KEY, JSON.stringify({
-      speed: this.video.playbackRate, volume: this.video.volume, muted: this.video.muted,
+      speed: this.media().playbackRate, volume: this.media().volume, muted: this.media().muted,
     }));
   }
   private updateMuteLabel(): void {
-    this.muteButton.innerHTML = this.video.muted || this.video.volume === 0 ? ICON.mute : ICON.volume;
-    this.volume.value = String(this.video.volume);
+    this.muteButton.innerHTML = this.media().muted || this.media().volume === 0 ? ICON.mute : ICON.volume;
+    this.volume.value = String(this.media().volume);
   }
   private updatePlayLabel(): void {
-    const playing = !this.video.paused;
+    const playing = !this.media().paused;
     this.playButton.innerHTML = playing ? ICON.pause : ICON.play;
     const center = this.root.querySelector<HTMLButtonElement>('.ssp-center-play');
     if (center) { center.hidden = playing; center.innerHTML = ICON.play; }
@@ -792,7 +867,7 @@ export class SecureStreamPlayer {
     this.noticeTimer=window.setTimeout(()=>{if(this.notice.textContent===message)this.notice.textContent='';},3000);
   }
   private async tryPlay(): Promise<void> {
-    try { await this.video.play(); } catch { this.showNotice('Press play to start playback.'); }
+    try { await this.media().play(); } catch { this.showNotice('Press play to start playback.'); }
   }
 
   public setDisplayMode(mode: DisplayMode): void {
@@ -803,15 +878,15 @@ export class SecureStreamPlayer {
     this.showNotice('View: ' + this.displayMode.selectedOptions[0]?.textContent);
   }
   public togglePlay(): void {
-    if (this.video.paused) void this.tryPlay();
-    else this.video.pause();
+    if (this.media().paused) void this.tryPlay();
+    else this.media().pause();
   }
   public skip(seconds: number): void {
-    const max = Number.isFinite(this.video.duration) ? this.video.duration : Number.MAX_SAFE_INTEGER;
-    this.video.currentTime = Math.max(0, Math.min(max, this.video.currentTime + seconds));
+    const max = Number.isFinite(this.media().duration) ? this.media().duration : Number.MAX_SAFE_INTEGER;
+    this.media().currentTime = Math.max(0, Math.min(max, this.media().currentTime + seconds));
   }
   public toggleMute(): void {
-    this.video.muted = !this.video.muted;
+    this.media().muted = !this.media().muted;
     this.savePreferences();
     this.updateMuteLabel();
   }
@@ -876,8 +951,9 @@ export class SecureStreamPlayer {
     this.universalDestroyed = true;
     (this.universal as (HTMLElement & {destroy?:()=>void}) | undefined)?.destroy?.();
     this.universal?.remove();
-    if (Number.isFinite(this.video.currentTime) && this.video.currentTime > 0 && Number.isFinite(this.video.duration) && this.video.duration - this.video.currentTime >= 15) {
-      this.storageSet(PROGRESS_PREFIX + this.options.id, String(Math.floor(this.video.currentTime)));
+    if (this.universalTrackTimer !== undefined) window.clearInterval(this.universalTrackTimer);
+    if (Number.isFinite(this.media().currentTime) && this.media().currentTime > 0 && Number.isFinite(this.media().duration) && this.media().duration - this.media().currentTime >= 15) {
+      this.storageSet(PROGRESS_PREFIX + this.options.id, String(Math.floor(this.media().currentTime)));
     }
     this.root.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('fullscreenchange',this.onFullscreenChange);
