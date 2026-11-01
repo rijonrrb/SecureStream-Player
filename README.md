@@ -8,19 +8,19 @@
 
 **Interactive demo:** https://rijonrrb.github.io/SecureStream-Player/  
 
-**MKV support and iPhone fullscreen:** [Preparation, compatibility and usage guide](docs/MKV_AND_IOS.md). Raw MKV URLs need an explicitly prepared MP4/HLS fallback; iPhones use native WebKit video fullscreen instead of fullscreening the custom player container.
+**Direct original MKV playback:** [Compatibility and installation guide](docs/MKV_AND_IOS.md). WebCodecs/FFmpeg-WASM decodes MKV byte ranges without conversion; add the generated `movi-element.js` decoder alongside the player bundle. Standard iPhone HTML-video fullscreen remains supported.
 
-> This is an early development release (`v0.2.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Audio/subtitle menus display only tracks exposed by the HLS manifest or browser-supported text tracks; arbitrary MKV embedded tracks require compatible web delivery or conversion.
+> This is an early development release (`v0.3.0`) with a working web demo. GitHub installation is supported; it is **not yet published to the npm registry**. Audio/subtitle menus display only tracks exposed by the HLS manifest or browser-supported text tracks; original MKV audio/subtitle tracks use the on-demand original-container engine, with codec compatibility depending on device.
 
 ## Why SecureStream?
 
-Embed a complete playback interface in **plain JavaScript, React, Next.js, Vue or Laravel** by mounting a framework-agnostic TypeScript library into a DOM element. Video hosting and transcoding are left to the integrator: use any authorized HTTP server or CDN that correctly serves HLS playlists and segments with CORS. The player does not download or re-encode your source files.
+Embed a complete playback interface in **plain JavaScript, React, Next.js, Vue or Laravel** by mounting a framework-agnostic TypeScript library into a DOM element. Video hosting and transcoding are left to the integrator: use any authorized HTTP server or CDN that correctly serves HLS playlists and segments with CORS. The player streams source ranges and does not re-encode your video. High-resolution decoding remains device-dependent.
 
 ### Features
 
 | Capability | Details |
 | --- | --- |
-| Streaming | HLS adaptive bitrate through hls.js; native HLS fallback; browser-compatible MP4 |
+| Streaming | Original MKV/legacy containers with WebCodecs/FFmpeg-WASM; MP4/MP3; HLS adaptive bitrate through hls.js |
 | Quality | Auto adaptive bitrate and manual rendition selection (360p, 480p, 720p, 1080p, 4K **if available in manifest**) |
 | Audio languages | Switch among alternate audio renditions provided by the HLS playlist (hls.js browsers) |
 | Captions | HLS subtitles plus optional external WebVTT tracks, toggleable separately from audio |
@@ -124,7 +124,7 @@ Import `@rijonrrb/securestream-player/style.css` in your global stylesheet entry
 
 ## Audio & subtitle setup
 
-* **Audio:** Multiple languages work when the HLS master playlist advertises alternate audio groups with `#EXT-X-MEDIA:TYPE=AUDIO`. A multi-audio MKV file cannot be handed directly to browsers and expected to expose VLC-style tracks: package supported codecs and alternate tracks into HLS first.
+* **Audio:** HLS alternate audio, original MKV's embedded audio/subtitles in the on-demand engine, and native MP4 audio tracks where supported. The original-container engine reads source bytes without re-encoding.
 * **Subtitles:** Add alternate HLS subtitle renditions or supply external WebVTT files through `subtitles`. Audio and subtitle selections remain independent.
 * **Safari:** Native HLS fallback is supported. The custom quality/audio menus are currently implemented through hls.js, so Safari/iOS native-HLS track selection can be more limited.
 * **CORS:** HLS playlists, video fragments, subtitle files and poster URLs must allow requests from your website's origin. MIME types for manifests and segments must be correct.

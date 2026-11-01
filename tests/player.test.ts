@@ -202,10 +202,10 @@ describe('SecureStreamPlayer', () => {
   });
 
 
-  it('does not attempt unplayable raw MKV without a browser-compatible rendition', () => {
+  it('initializes original MKV decoder without prior conversion', () => {
     player = new SecureStreamPlayer({ container: host, id:'raw-mkv', src:'https://cdn.example.org/sample.mkv?signature=123' });
     expect(host.querySelector('video')?.getAttribute('src')).toBeNull();
-    expect(host.querySelector('.ssp-notice')?.textContent).toContain('MKV needs a browser-compatible');
+    expect(host.querySelector('.ssp-notice')?.textContent).toContain('Loading original media container');
   });
 
   it('plays a supplied compatible MP4 fallback for an MKV original', () => {
