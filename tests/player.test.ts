@@ -47,13 +47,58 @@ describe('SecureStreamPlayer', () => {
     player.skip(10);
     expect(video.currentTime).toBe(30);
   });
-  it('restores the previous watch position for the same movie', () => {
+  it('asks before resuming and resumes only after viewer chooses', () => {
     localStorage.setItem('securestream:progress:movie-1', '42');
     player = setup('movie-1');
     const video = host.querySelector('video')!;
     Object.defineProperty(video, 'duration', { configurable: true, value: 180 });
     video.dispatchEvent(new Event('loadedmetadata'));
+    const dialog = host.querySelector<HTMLElement>('.ssp-resume')!;
+    expect(dialog.hidden).toBe(false);
+    expect(video.currentTime).toBe(0);
+    expect(host.querySelector('[data-resume="continue"]')!.textContent).toContain('0:42');
+    host.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.click();
+    expect(dialog.hidden).toBe(true);
     expect(video.currentTime).toBe(42);
+  });
+  it('never autoplays ahead of the Resume or Start Over choice', () => {
+    localStorage.setItem('securestream:progress:autoplay', '35');
+    const play = vi.spyOn(HTMLMediaElement.prototype,'play').mockResolvedValue(undefined);
+    player = new SecureStreamPlayer({
+      container:host,id:'autoplay',src:'https://example.org/video.mp4',autoPlay:true,
+    });
+    const video=host.querySelector('video')!;
+    Object.defineProperty(video,'duration',{configurable:true,value:180});
+    video.dispatchEvent(new Event('loadedmetadata'));
+    expect(host.querySelector<HTMLElement>('.ssp-resume')!.hidden).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    host.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.click();
+    expect(play).toHaveBeenCalledOnce();
+    expect(video.currentTime).toBe(35);
+  });
+  it('waits for asynchronous MKV seek before resuming playback', async () => {
+    localStorage.setItem('securestream:progress:async-movi','42');
+    player=setup('async-movi');
+    const element=document.createElement('movi-player') as any;
+    let completeSeek: ()=>void = ()=>{};
+    const seek=new Promise<void>(resolve=>{completeSeek=resolve;});
+    const seekTo=vi.fn().mockReturnValue(seek);
+    const play=vi.fn().mockResolvedValue(undefined);
+    element.player={seek:seekTo};
+    element.currentTime=0;
+    element.duration=180;
+    element.play=play;
+    element.pause=vi.fn();
+    (player as any).universal=element;
+    (player as any).offerResumeChoice(180);
+    host.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.click();
+    expect(seekTo).toHaveBeenCalledWith(42);
+    expect(play).not.toHaveBeenCalled();
+    completeSeek();
+    await Promise.resolve();
+    expect(play).not.toHaveBeenCalled();
+    element.dispatchEvent(new Event('seeked'));
+    await vi.waitFor(()=>expect(play).toHaveBeenCalledOnce());
   });
   it('saves playback position periodically', () => {
     player = setup('movie-2');
@@ -332,6 +377,35 @@ describe('SecureStreamPlayer', () => {
     expect(movi.requestPictureInPicture).toHaveBeenCalledOnce();
   });
 
+  it('requests automatic FFmpeg software fallback for original MKV on Android', async () => {
+    if (!customElements.get('movi-player')) customElements.define('movi-player', class extends HTMLElement {});
+    player = new SecureStreamPlayer({
+      container:host,id:'android-mkv',src:'https://cdn.example.org/movie.mkv?sig=foo',
+    });
+    await vi.waitFor(() => expect(host.querySelector('movi-player')).not.toBeNull());
+    expect(host.querySelector('movi-player')!.getAttribute('sw')).toBe('auto');
+    expect(host.querySelector('movi-player')!.getAttribute('engine')).toBe('wasm');
+  });
+
+  it('enters iPhone canvas fullscreen without disconnecting the decoder element', async () => {
+    vi.spyOn(window.navigator,'userAgent','get')
+      .mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 26_0) AppleWebKit/605.1.15');
+    player=setup('ios-original-container');
+    const root=host.querySelector<HTMLElement>('.ssp-player')!;
+    const originalParent=root.parentElement;
+    const movi=document.createElement('movi-player') as any;
+    movi.pause=vi.fn();
+    movi.duration=180;
+    movi.currentTime=0;
+    (player as any).universal=movi;
+    await player.toggleFullscreen();
+    expect(root.classList.contains('ssp-viewport-fullscreen')).toBe(true);
+    expect(root.parentElement).toBe(originalParent);
+    await player.toggleFullscreen();
+    expect(root.classList.contains('ssp-viewport-fullscreen')).toBe(false);
+    expect(document.documentElement.classList.contains('ssp-viewport-lock')).toBe(false);
+  });
+
   it('switches browser-exposed native MP4 audio tracks independently', () => {
     const nativeAudio = [
       { language:'en', label:'English', enabled:true },
@@ -376,18 +450,17 @@ describe('SecureStreamPlayer', () => {
     expect(quality.disabled).toBe(true);
     expect(quality.selectedOptions[0]?.textContent).toContain('Original');
   });
-  it('automatically hides a resumed playback notice after three seconds', () => {
-    vi.useFakeTimers();
-    try {
-      localStorage.setItem('securestream:progress:resume','42');
-      player=setup('resume');
-      const video=host.querySelector('video')!;
-      Object.defineProperty(video,'duration',{configurable:true,value:180});
-      video.dispatchEvent(new Event('loadedmetadata'));
-      expect(host.querySelector('.ssp-notice')!.textContent).toContain('Resumed at');
-      vi.advanceTimersByTime(3000);
-      expect(host.querySelector('.ssp-notice')!.textContent).toBe('');
-    } finally {vi.useRealTimers();}
+  it('clears previously saved progress when viewer selects Start Over', () => {
+    localStorage.setItem('securestream:progress:resume','42');
+    player=setup('resume');
+    const video=host.querySelector('video')!;
+    Object.defineProperty(video,'duration',{configurable:true,value:180});
+    video.dispatchEvent(new Event('loadedmetadata'));
+    expect(host.querySelector<HTMLElement>('.ssp-resume')!.hidden).toBe(false);
+    host.querySelector<HTMLButtonElement>('[data-resume="restart"]')!.click();
+    expect(video.currentTime).toBe(0);
+    expect(localStorage.getItem('securestream:progress:resume')).toBeNull();
+    expect(host.querySelector<HTMLElement>('.ssp-resume')!.hidden).toBe(true);
   });
 
 });
