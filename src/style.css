@@ -122,3 +122,15 @@
 .ssp-player.ssp-buffering .ssp-buffer-spinner{display:block;animation:ssp-spin 1s linear infinite}
 @keyframes ssp-spin{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
 .ssp-settings label[hidden]{display:none!important}
+
+/* Optional playlist actions: hidden by default, visible only for series playlists. */
+.ssp-player [hidden] { display:none!important; }
+.ssp-player .ssp-primary-buttons [data-action="previous-item"],
+.ssp-player .ssp-primary-buttons [data-action="next-item"] { color:var(--ssp-accent); }
+@media(max-width:420px) {
+  .ssp-primary-buttons { gap:0; }
+  .ssp-primary-buttons button { padding:4px 3px; }
+  .ssp-primary-buttons [data-action="previous-item"],
+  .ssp-primary-buttons [data-action="next-item"] { min-width:25px; }
+  .ssp-primary-buttons .ssp-time { font-size:8px; }
+}

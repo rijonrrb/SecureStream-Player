@@ -22,6 +22,10 @@ export type PlayerOptions = {
   thumbnails?: ThumbnailSprite;
   autoPlay?: boolean;
   muted?: boolean;
+  /** Optional playlist navigation, exposed only for multi-item playback. */
+  playlist?: { previous?: () => void; next?: () => void };
+  /** Fires when the actual media finishes (native or original-container engine). */
+  onEnded?: () => void;
 };
 
 type PlaybackPreferences = { speed: number; volume: number; muted: boolean };
@@ -29,6 +33,9 @@ type AppleVideo = HTMLVideoElement & {
   webkitEnterFullscreen?: () => void;
   webkitExitFullscreen?: () => void;
   webkitDisplayingFullscreen?: boolean;
+  webkitPresentationMode?: 'inline' | 'fullscreen' | 'picture-in-picture';
+  webkitSupportsPresentationMode?: (mode: string) => boolean;
+  webkitSetPresentationMode?: (mode: 'inline' | 'picture-in-picture') => void;
 };
 type NativeAudioTrack = { language?: string; label?: string; enabled: boolean };
 type NativeAudioTracks = { length: number; [index: number]: NativeAudioTrack; addEventListener?: (event: string, cb: () => void) => void };
@@ -66,6 +73,8 @@ const ICON = {
   captions: svgIcon('<rect x="2.5" y="4.5" width="19" height="15" rx="1"/><path d="M5.5 12h4m5 0h4M5.5 15h4m5 0h4"/>'),
   audio: svgIcon('<path d="M9 18V5l12-2v12"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="15" r="3"/>'),
   pip: svgIcon('<rect x="2" y="4" width="20" height="16" rx="1"/><rect x="12" y="11" width="8" height="6" rx=".5" fill="currentColor" stroke="none"/>'),
+  previous: svgIcon('<path d="M5 5v14M19 5 9 12l10 7V5Z"/>'),
+  next: svgIcon('<path d="M19 5v14M5 5l10 7L5 19V5Z"/>'),
   fullscreen: svgIcon('<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>'),
   menu: svgIcon('<circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/>'),
 };
@@ -101,7 +110,9 @@ export class SecureStreamPlayer {
     selectAudioTrack: (id: number) => boolean;
     selectSubtitleTrack: (id: number | null) => Promise<boolean>;
   }; currentTime: number; duration: number; paused: boolean; playbackRate: number; volume: number; muted: boolean;
-    play: () => Promise<void>; pause: () => void };
+    play: () => Promise<void>; pause: () => void;
+    requestPictureInPicture?: () => Promise<unknown>; exitFullscreen?: () => void;
+  };
   private activeUniversalAudioTrack: number | null = null;
   private activeUniversalSubtitleTrack: number | null = null;
   private universalTrackTimer?: number;
@@ -114,6 +125,7 @@ export class SecureStreamPlayer {
   private lastSavedSecond = -1;
   private restored = false;
   private nativeFullscreenControls = false;
+  private universalFullscreenRequested = false;
   private noticeTimer?: number;
   private controlTimer?: number;
   private seekTimer?: number;
@@ -230,9 +242,11 @@ export class SecureStreamPlayer {
       '      <div class="ssp-progress-line"><input data-role="seek" type="range" value="0" min="0" max="1000" step="1" aria-label="Seek video position" /></div>',
       '      <div class="ssp-buttons">',
       '        <div class="ssp-primary-buttons">',
+      '          <button data-action="previous-item" title="Previous episode" aria-label="Previous episode" hidden>Previous</button>',
       '          <button data-action="back" title="Rewind 10 seconds" aria-label="Rewind 10 seconds">↶<small>10</small></button>',
       '          <button data-action="play" title="Play or pause" aria-label="Play or pause">▶</button>',
       '          <button data-action="forward" title="Forward 10 seconds" aria-label="Forward 10 seconds"><small>10</small>↷</button>',
+      '          <button data-action="next-item" title="Next episode" aria-label="Next episode" hidden>Next</button>',
       '          <button class="ssp-time" data-role="time" data-action="time" title="Toggle between duration and time remaining" aria-label="Toggle elapsed and remaining time">0:00 / 0:00</button>',
       '        </div>',
       '        <div class="ssp-secondary-buttons">',
@@ -249,12 +263,15 @@ export class SecureStreamPlayer {
       forward: '<small>10</small>' + ICON.forward, mute: ICON.volume,
       'captions-menu': ICON.captions, 'audio-menu': ICON.audio,
       pip: ICON.pip, fullscreen: ICON.fullscreen, menu: ICON.menu,
+      'previous-item': ICON.previous, 'next-item': ICON.next,
     };
     this.root.querySelectorAll<HTMLButtonElement>('button[data-action]').forEach(button => {
       const icon = iconButtons[button.dataset.action || ''];
       if (icon) button.innerHTML = icon;
     });
     this.root.querySelector<HTMLButtonElement>('.ssp-center-play')!.innerHTML = ICON.play;
+    this.root.querySelector<HTMLButtonElement>('[data-action="previous-item"]')!.hidden = !options.playlist?.previous;
+    this.root.querySelector<HTMLButtonElement>('[data-action="next-item"]')!.hidden = !options.playlist?.next;
     options.container.replaceChildren(this.root);
     const get = <T extends HTMLElement>(selector: string): T => {
       const el = this.root.querySelector<T>(selector);
@@ -345,7 +362,7 @@ export class SecureStreamPlayer {
       this.updateProgress();
       this.persistProgress();
     });
-    this.video.addEventListener('ended', () => {this.removeProgress();this.revealControls();});
+    this.video.addEventListener('ended', () => {this.removeProgress();this.revealControls();this.options.onEnded?.();});
     this.video.addEventListener('waiting',()=>this.root.classList.add('ssp-buffering'));
     this.video.addEventListener('seeking',()=>this.root.classList.add('ssp-buffering'));
     for(const name of ['seeked','canplay','playing','error']){
@@ -426,6 +443,8 @@ export class SecureStreamPlayer {
       case 'captions-menu': this.toggleQuickMenu('captions'); break;
       case 'audio-menu': this.toggleQuickMenu('audio'); break;
       case 'time': this.showRemaining = !this.showRemaining; this.updateProgress(); break;
+      case 'previous-item': this.options.playlist?.previous?.(); break;
+      case 'next-item': this.options.playlist?.next?.(); break;
       case 'pip': void this.togglePictureInPicture(); break;
       case 'fullscreen': void this.toggleFullscreen(); break;
     }
@@ -563,6 +582,9 @@ export class SecureStreamPlayer {
       const el = document.createElement('movi-player');
       // Force WASM demux for MP4 with embedded multi-language audio and subtitles.
       el.setAttribute('engine', 'wasm');
+      // The WebCodecs canvas has its own fit API; CSS object-fit on the hidden HTML video has no effect.
+      el.setAttribute('objectfit', this.root.dataset.display === 'fit' ? 'contain' :
+        this.root.dataset.display === 'stretch' ? 'fill' : 'cover');
       el.setAttribute('src', source);
       // SecureStream provides the complete UI; never render the decoder's controls.
       if (this.options.title) el.setAttribute('title', this.options.title);
@@ -575,6 +597,10 @@ export class SecureStreamPlayer {
       this.root.classList.add('ssp-universal');
       this.root.querySelector('.ssp-stage')?.appendChild(el);
       this.universal = el as typeof this.universal;
+      el.addEventListener('fullscreenchange', event => {
+        const detail=(event as CustomEvent<{fullscreen?:boolean}>).detail;
+        if(typeof detail?.fullscreen==='boolean') this.universalFullscreenRequested=detail.fullscreen;
+      });
       this.universal!.volume = this.video.volume;
       this.universal!.muted = this.video.muted;
       this.universal!.playbackRate = this.video.playbackRate;
@@ -589,7 +615,7 @@ export class SecureStreamPlayer {
       el.addEventListener('timeupdate', () => { this.updateProgress(); this.persistProgress(); });
       el.addEventListener('play', () => this.updatePlayLabel());
       el.addEventListener('pause', () => this.updatePlayLabel());
-      el.addEventListener('ended', () => { this.removeProgress(); this.updatePlayLabel(); });
+      el.addEventListener('ended', () => { this.removeProgress(); this.updatePlayLabel(); this.options.onEnded?.(); });
       el.addEventListener('volumechange', () => this.updateMuteLabel());
       this.updatePlayLabel();
       this.notice.textContent = '';
@@ -874,6 +900,9 @@ export class SecureStreamPlayer {
     const valid: DisplayMode[] = ['fit','fill','stretch','ratio-16-9','ratio-4-3','ratio-21-9'];
     if (!valid.includes(mode)) throw new Error('Unknown video display mode: ' + mode);
     this.root.dataset.display = mode;
+    if(this.universal){
+      this.universal.setAttribute('objectfit', mode === 'fit' ? 'contain' : mode === 'stretch' ? 'fill' : 'cover');
+    }
     this.displayMode.value = mode;
     this.showNotice('View: ' + this.displayMode.selectedOptions[0]?.textContent);
   }
@@ -897,6 +926,24 @@ export class SecureStreamPlayer {
     this.showNotice(enabled ? 'Watermark enabled' : 'Watermark disabled');
   }
   public async toggleFullscreen(): Promise<void> {
+    if(this.universal){
+      try {
+        // Fullscreen the SecureStream shell first so its own audio, captions and seek controls stay visible.
+        if(document.fullscreenElement===this.root){await document.exitFullscreen();return;}
+        if(!this.universalFullscreenRequested && this.root.requestFullscreen && document.fullscreenEnabled!==false){
+          try{await this.root.requestFullscreen();return;}catch{/* WebKit may not fullscreen a canvas wrapper. */}
+        }
+        // Original-container engine has an iOS viewport-fill fallback when element fullscreen is unavailable.
+        if(this.universalFullscreenRequested) {
+          this.universal.exitFullscreen?.();
+          this.universalFullscreenRequested=false;
+        }else{
+          await this.universal.requestFullscreen();
+          this.universalFullscreenRequested=true;
+        }
+      }catch{this.showNotice('Fullscreen is unavailable for this media on this device.');}
+      return;
+    }
     const appleVideo = this.video as AppleVideo;
     try {
       if (document.fullscreenElement === this.root) {
@@ -940,12 +987,48 @@ export class SecureStreamPlayer {
     video.webkitEnterFullscreen?.();
   }
   public async togglePictureInPicture(): Promise<void> {
+    if(this.universal){
+      try{
+        // Canvas-rendered original MKV/MP4 uses Movi's Document-PiP window, where supported.
+        if(typeof this.universal.requestPictureInPicture!=='function') throw Error('Unavailable');
+        await this.universal.requestPictureInPicture();
+      }catch{this.showNotice('Picture-in-Picture for original-container playback requires a compatible browser (Chromium Document PiP).');}
+      return;
+    }
+    const appleVideo = this.video as AppleVideo;
+    const supportsWebKitPiP = typeof appleVideo.webkitSetPresentationMode === 'function'
+      && (typeof appleVideo.webkitSupportsPresentationMode !== 'function'
+        || appleVideo.webkitSupportsPresentationMode('picture-in-picture'));
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     try {
-      if (document.pictureInPictureElement === this.video) await document.exitPictureInPicture();
-      else if (document.pictureInPictureEnabled && this.video.requestPictureInPicture) {
+      // On iOS, request the WebKit video presentation mode directly inside the click gesture.
+      // Waiting for a failed standard request can consume the gesture and make this fail too.
+      if (isIOS && supportsWebKitPiP) {
+        appleVideo.webkitSetPresentationMode!(
+          appleVideo.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture',
+        );
+        return;
+      }
+      if (document.pictureInPictureElement === this.video) {
+        await document.exitPictureInPicture();
+        return;
+      }
+      if (typeof this.video.requestPictureInPicture === 'function') {
         await this.video.requestPictureInPicture();
-      } else this.showNotice('Picture-in-Picture is not supported by this browser.');
-    } catch { this.showNotice('Picture-in-Picture could not start.'); }
+        return;
+      }
+      // Safari on macOS also exposes WebKit PiP even where the standard API is absent.
+      if (supportsWebKitPiP) {
+        appleVideo.webkitSetPresentationMode!(
+          appleVideo.webkitPresentationMode === 'picture-in-picture' ? 'inline' : 'picture-in-picture',
+        );
+        return;
+      }
+      this.showNotice('Picture-in-Picture is unavailable for this video or browser.');
+    } catch {
+      this.showNotice('Picture-in-Picture could not start. Check browser permissions and video support.');
+    }
   }
   public destroy(): void {
     this.universalDestroyed = true;
