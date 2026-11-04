@@ -18,6 +18,8 @@ describe('SecureStreamPlayer', () => {
     player = undefined;
     host.remove();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    Reflect.deleteProperty(document, 'fullscreenElement');
   });
   const setup = (id = 'sample') => new SecureStreamPlayer({
     container: host, id, src: 'https://example.org/video.mp4',
@@ -388,6 +390,8 @@ describe('SecureStreamPlayer', () => {
   });
 
   it('enters iPhone canvas fullscreen without disconnecting the decoder element', async () => {
+    vi.stubGlobal('innerWidth', 390);
+    vi.stubGlobal('innerHeight', 844);
     vi.spyOn(window.navigator,'userAgent','get')
       .mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 26_0) AppleWebKit/605.1.15');
     player=setup('ios-original-container');
@@ -400,10 +404,33 @@ describe('SecureStreamPlayer', () => {
     (player as any).universal=movi;
     await player.toggleFullscreen();
     expect(root.classList.contains('ssp-viewport-fullscreen')).toBe(true);
+    expect(root.classList.contains('ssp-simulated-landscape')).toBe(true);
     expect(root.parentElement).toBe(originalParent);
+    vi.stubGlobal('innerWidth', 844);
+    vi.stubGlobal('innerHeight', 390);
+    window.dispatchEvent(new Event('resize'));
+    expect(root.classList.contains('ssp-simulated-landscape')).toBe(false);
     await player.toggleFullscreen();
     expect(root.classList.contains('ssp-viewport-fullscreen')).toBe(false);
     expect(document.documentElement.classList.contains('ssp-viewport-lock')).toBe(false);
+  });
+
+  it('requests Android landscape orientation on fullscreen and unlocks on exit', async () => {
+    const lock=vi.fn().mockResolvedValue(undefined);
+    const unlock=vi.fn();
+    vi.stubGlobal('screen', { orientation: { lock, unlock } });
+    player=setup('android-landscape');
+    const root=host.querySelector<HTMLElement>('.ssp-player')!;
+    root.requestFullscreen=vi.fn().mockImplementation(async () => {
+      Object.defineProperty(document,'fullscreenElement',{configurable:true,value:root});
+      document.dispatchEvent(new Event('fullscreenchange'));
+    });
+    await player.toggleFullscreen();
+    expect(lock).toHaveBeenCalledWith('landscape');
+    await vi.waitFor(() => expect(lock).toHaveBeenCalledOnce());
+    Object.defineProperty(document,'fullscreenElement',{configurable:true,value:null});
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(unlock).toHaveBeenCalledOnce();
   });
 
   it('switches browser-exposed native MP4 audio tracks independently', () => {

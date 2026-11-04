@@ -130,13 +130,18 @@ export class SecureStreamPlayer {
   private resumeSeconds = 0;
   private readonly resumeDialog: HTMLElement;
   private viewportFullscreen = false;
+  private orientationLocked = false;
   private nativeFullscreenControls = false;
   private universalFullscreenRequested = false;
   private noticeTimer?: number;
   private controlTimer?: number;
   private seekTimer?: number;
   private seekingUI = false;
-  private readonly onFullscreenChange = (): void => this.revealControls();
+  private readonly onFullscreenChange = (): void => {
+    if (document.fullscreenElement === this.root) void this.lockLandscapeIfSupported();
+    else this.unlockLandscapeIfNeeded();
+    this.revealControls();
+  };
   private revealControls(): void {
     this.root.classList.remove('ssp-idle');
     this.root.style.cursor = '';
@@ -992,16 +997,45 @@ export class SecureStreamPlayer {
       this.exitViewportFullscreen();
     }
   };
+  private readonly onViewportResize = (): void => this.updateViewportLandscape();
+  private updateViewportLandscape(): void {
+    // iPhone cannot rotate the OS from JavaScript. Turn the in-page canvas shell
+    // only while the browser viewport is portrait, and undo when the phone rotates.
+    this.root.classList.toggle('ssp-simulated-landscape',
+      this.viewportFullscreen && window.innerHeight > window.innerWidth);
+  }
+  private async lockLandscapeIfSupported(): Promise<void> {
+    // Orientation lock is supported by Android fullscreen, but rejected on iOS.
+    const orientation = screen.orientation as ScreenOrientation & {
+      lock?: (mode: string) => Promise<void>;
+    };
+    if (!orientation || typeof orientation.lock !== 'function') return;
+    try {
+      await orientation.lock('landscape');
+      if (document.fullscreenElement === this.root) this.orientationLocked = true;
+      else orientation.unlock?.();
+    } catch { /* Device or browser does not permit an orientation lock. */ }
+  }
+  private unlockLandscapeIfNeeded(): void {
+    if (!this.orientationLocked) return;
+    this.orientationLocked = false;
+    try { screen.orientation?.unlock?.(); } catch { /* Ignore unsupported unlock. */ }
+  }
   private enterViewportFullscreen(): void {
     if (this.viewportFullscreen) return;
     this.root.classList.add('ssp-viewport-fullscreen');
     document.documentElement.classList.add('ssp-viewport-lock');
     this.viewportFullscreen = true;
+    this.updateViewportLandscape();
+    window.addEventListener('resize', this.onViewportResize);
+    window.visualViewport?.addEventListener('resize', this.onViewportResize);
     this.revealControls();
   }
   private exitViewportFullscreen(): void {
     if (!this.viewportFullscreen) return;
-    this.root.classList.remove('ssp-viewport-fullscreen');
+    window.removeEventListener('resize', this.onViewportResize);
+    window.visualViewport?.removeEventListener('resize', this.onViewportResize);
+    this.root.classList.remove('ssp-viewport-fullscreen', 'ssp-simulated-landscape');
     document.documentElement.classList.remove('ssp-viewport-lock');
     this.viewportFullscreen = false;
     this.revealControls();
@@ -1116,6 +1150,7 @@ export class SecureStreamPlayer {
   }
   public destroy(): void {
     this.exitViewportFullscreen();
+    this.unlockLandscapeIfNeeded();
     document.removeEventListener('keydown', this.onViewportKeyDown);
     this.universalDestroyed = true;
     (this.universal as (HTMLElement & {destroy?:()=>void}) | undefined)?.destroy?.();
