@@ -144,6 +144,15 @@ html.ssp-viewport-lock { overflow:hidden!important; }
   width:100vw!important; height:100dvh!important; max-width:none!important;
   margin:0!important; border:0!important; z-index:2147483646!important;
 }
+/* iPhone browser chrome cannot be hidden for a canvas player. In portrait,
+   rotate the existing SecureStream shell inside the *available* viewport instead
+   of replacing the player, detaching the decoder, or changing video quality. */
+.ssp-player.ssp-viewport-fullscreen.ssp-simulated-landscape {
+  inset:auto!important; top:0!important; left:0!important;
+  width:100dvh!important; height:100vw!important;
+  transform-origin:top left!important;
+  transform:translateX(100vw) rotate(90deg)!important;
+}
 .ssp-player.ssp-viewport-fullscreen .ssp-stage { height:100%; aspect-ratio:auto; }
 .ssp-player.ssp-viewport-fullscreen .ssp-top { padding-top:max(10px, env(safe-area-inset-top)); }
 .ssp-player.ssp-viewport-fullscreen .ssp-bottom { padding-bottom:max(10px, env(safe-area-inset-bottom)); }
