@@ -109,6 +109,7 @@ export class SecureStreamPlayer {
     getTracks: () => Array<{ id: number; type: string; language?: string; codec?: string }>;
     selectAudioTrack: (id: number) => boolean;
     selectSubtitleTrack: (id: number | null) => Promise<boolean>;
+    seek?: (timestamp: number) => Promise<void>;
   }; currentTime: number; duration: number; paused: boolean; playbackRate: number; volume: number; muted: boolean;
     play: () => Promise<void>; pause: () => void;
     requestPictureInPicture?: () => Promise<unknown>; exitFullscreen?: () => void;
@@ -124,6 +125,11 @@ export class SecureStreamPlayer {
   private mediaRetries = 0;
   private lastSavedSecond = -1;
   private restored = false;
+  private awaitingResumeChoice = false;
+  private pendingResumeSeek = false;
+  private resumeSeconds = 0;
+  private readonly resumeDialog: HTMLElement;
+  private viewportFullscreen = false;
   private nativeFullscreenControls = false;
   private universalFullscreenRequested = false;
   private noticeTimer?: number;
@@ -256,6 +262,14 @@ export class SecureStreamPlayer {
       '      </div>',
       '    </div>',
       '  </div>',
+      '  <div class="ssp-resume" role="dialog" aria-label="Continue watching" aria-modal="true" hidden>',
+      '    <strong>CONTINUE WATCHING?</strong>',
+      '    <p>Pick up where you left off, or start from the beginning.</p>',
+      '    <div class="ssp-resume-actions">',
+      '      <button type="button" data-resume="continue">Resume</button>',
+      '      <button type="button" data-resume="restart">Start Over</button>',
+      '    </div>',
+      '  </div>',
       '</div>',
     ].join('\n');
     const iconButtons: Record<string, string> = {
@@ -293,6 +307,9 @@ export class SecureStreamPlayer {
     this.seek = get<HTMLInputElement>('[data-role="seek"]');
     this.volume = get<HTMLInputElement>('[data-role="volume"]');
     this.notice = get<HTMLElement>('.ssp-notice');
+    this.resumeDialog = get<HTMLElement>('.ssp-resume');
+    this.resumeDialog.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.addEventListener('click', () => this.chooseResume(true));
+    this.resumeDialog.querySelector<HTMLButtonElement>('[data-resume="restart"]')!.addEventListener('click', () => this.chooseResume(false));
     this.watermark = get<HTMLElement>('.ssp-watermark');
     this.preview = get<HTMLElement>('.ssp-preview');
     this.progressTime = get<HTMLElement>('[data-role="time"]');
@@ -339,6 +356,7 @@ export class SecureStreamPlayer {
     this.root.addEventListener('pointermove',()=>this.revealControls());
     this.root.addEventListener('pointerdown',()=>this.revealControls());
     document.addEventListener('fullscreenchange',this.onFullscreenChange);
+    document.addEventListener('keydown', this.onViewportKeyDown);
     this.root.addEventListener('pointerdown', (event) => {
       const target = event.target as Node;
       if (!this.settings.hidden && !this.settings.contains(target) && !this.menuButton.contains(target)) this.closeMenu();
@@ -357,6 +375,8 @@ export class SecureStreamPlayer {
       this.refreshCaptions();
       this.refreshAudio();
       this.updateProgress();
+      // Autoplay waits until metadata restores the resume decision, for native MP4 and HLS alike.
+      if (this.options.autoPlay && !this.awaitingResumeChoice) void this.tryPlay();
     });
     this.video.addEventListener('timeupdate', () => {
       this.updateProgress();
@@ -534,7 +554,6 @@ export class SecureStreamPlayer {
         this.updateLevels();
         this.refreshAudio();
         this.refreshCaptions();
-        if (this.options.autoPlay) void this.tryPlay();
       });
       this.hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => this.refreshAudio());
       this.hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => this.refreshCaptions());
@@ -562,9 +581,6 @@ export class SecureStreamPlayer {
       this.hls.attachMedia(this.video);
     } else {
       this.video.src = source;
-      if (this.options.autoPlay) {
-        this.video.addEventListener('loadedmetadata', () => { void this.tryPlay(); }, { once: true });
-      }
       if (isHls && !this.video.canPlayType('application/vnd.apple.mpegurl')) {
         this.showNotice('This browser cannot play HLS. Please try another browser.');
       }
@@ -582,6 +598,8 @@ export class SecureStreamPlayer {
       const el = document.createElement('movi-player');
       // Force WASM demux for MP4 with embedded multi-language audio and subtitles.
       el.setAttribute('engine', 'wasm');
+      // Movi 0.4.1 requires explicit sw=auto to recover when Android WebCodecs hardware rejects HEVC/10-bit/etc.
+      el.setAttribute('sw', 'auto');
       // The WebCodecs canvas has its own fit API; CSS object-fit on the hidden HTML video has no effect.
       el.setAttribute('objectfit', this.root.dataset.display === 'fit' ? 'contain' :
         this.root.dataset.display === 'stretch' ? 'fill' : 'cover');
@@ -589,7 +607,7 @@ export class SecureStreamPlayer {
       // SecureStream provides the complete UI; never render the decoder's controls.
       if (this.options.title) el.setAttribute('title', this.options.title);
       if (this.options.poster) el.setAttribute('poster', this.options.poster);
-      if (this.options.autoPlay) el.setAttribute('autoplay', '');
+      // Autoplay is evaluated after loadedmetadata so a saved progress choice can take precedence.
       if (this.options.muted) el.setAttribute('muted', '');
       el.setAttribute('aria-label', this.options.title || 'Media player');
       this.video.removeAttribute('src');
@@ -608,6 +626,7 @@ export class SecureStreamPlayer {
       this.universalTrackTimer = window.setInterval(updateTracks, 1300);
       el.addEventListener('loadedmetadata', () => {
         this.restoreUniversalPosition();
+        if (this.options.autoPlay && !this.awaitingResumeChoice) void this.tryPlay();
         updateTracks();
         this.updateProgress();
       });
@@ -627,16 +646,10 @@ export class SecureStreamPlayer {
       el.addEventListener('loadeddata',()=>this.root.classList.remove('ssp-buffering'));
       el.addEventListener('timeupdate', () => {
         const time = Number(media.currentTime);
-        if (Number.isFinite(time) && time >= 0 && Math.floor(time) !== this.lastSavedSecond) {
+        if (!this.awaitingResumeChoice && !this.pendingResumeSeek && Number.isFinite(time) && time >= 0 && Math.floor(time) !== this.lastSavedSecond) {
           this.lastSavedSecond = Math.floor(time);
           this.storageSet(PROGRESS_PREFIX + this.options.id, String(this.lastSavedSecond));
         }
-      });
-      el.addEventListener('loadedmetadata', () => {
-        if (this.restored) return;
-        this.restored = true;
-        const saved = Number(this.storageGet(PROGRESS_PREFIX + this.options.id) || '0');
-        if (saved > 0 && saved < Number(media.duration || Infinity) - 10) media.currentTime = saved;
       });
       el.addEventListener('error', () => this.showNotice('This container or codec cannot be decoded on this device. Your original file remains unchanged.'));
     } catch (error) {
@@ -646,12 +659,8 @@ export class SecureStreamPlayer {
   }
 
   private restoreUniversalPosition(): void {
-    if (this.restored || !this.universal) return;
-    const saved = Number(this.storageGet(PROGRESS_PREFIX + this.options.id) || '0');
-    if (saved > 0 && saved < Number(this.universal.duration || Infinity) - 15) {
-      this.universal.currentTime = saved;
-    }
-    this.restored = true;
+    if (!this.universal) return;
+    this.offerResumeChoice(this.universal.duration);
   }
 
   private updateLevels(): void {
@@ -848,15 +857,65 @@ export class SecureStreamPlayer {
     try { window.localStorage.removeItem(PROGRESS_PREFIX + this.options.id); } catch { /* disabled */ }
   }
   private restorePosition(): void {
+    this.offerResumeChoice(this.video.duration);
+  }
+  private offerResumeChoice(duration: number): void {
     if (this.restored) return;
     this.restored = true;
     const saved = Number(this.storageGet(PROGRESS_PREFIX + this.options.id));
-    if (saved > 0 && Number.isFinite(this.media().duration) && saved < this.media().duration - 15) {
-      this.media().currentTime = saved;
-      this.showNotice('Resumed at ' + this.formatTime(saved));
+    if (!Number.isFinite(saved) || saved < 10 || !Number.isFinite(duration) || saved >= duration - 15) return;
+    this.resumeSeconds = saved;
+    this.awaitingResumeChoice = true;
+    this.media().pause();
+    this.resumeDialog.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.textContent =
+      'Resume at ' + this.formatTime(saved);
+    this.resumeDialog.hidden = false;
+    this.resumeDialog.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.focus();
+  }
+  private async chooseResume(continueWatching: boolean): Promise<void> {
+    if (!this.awaitingResumeChoice) return;
+    this.awaitingResumeChoice = false;
+    this.resumeDialog.hidden = true;
+    this.lastSavedSecond = -1;
+    if (continueWatching) {
+      if (this.universal?.player?.seek) {
+        this.pendingResumeSeek = true;
+        this.root.classList.add('ssp-buffering');
+        const decoder = this.universal;
+        // Movi's seek() resolves when demuxing starts; the video is ready only on "seeked".
+        // Wait for that signal before play to avoid racing the resume seek on HEVC MKV.
+        let stopWaiting = () => {};
+        const finished = new Promise<void>(resolve => {
+          const complete = () => {
+            window.clearTimeout(timeout);
+            decoder.removeEventListener('seeked', complete);
+            decoder.removeEventListener('error', complete);
+            resolve();
+          };
+          stopWaiting = complete;
+          const timeout = window.setTimeout(complete, 20000);
+          decoder.addEventListener('seeked', complete, { once: true });
+          decoder.addEventListener('error', complete, { once: true });
+        });
+        try {
+          await decoder.player!.seek!(this.resumeSeconds);
+          await finished;
+        } catch {
+          stopWaiting();
+          decoder.currentTime = this.resumeSeconds;
+        } finally {
+          this.pendingResumeSeek = false;
+          this.root.classList.remove('ssp-buffering');
+        }
+      } else this.media().currentTime = this.resumeSeconds;
+    } else {
+      this.removeProgress();
+      this.media().currentTime = 0;
     }
+    void this.tryPlay();
   }
   private persistProgress(): void {
+    if (this.awaitingResumeChoice || this.pendingResumeSeek) return;
     const seconds = Math.floor(this.media().currentTime);
     if (!Number.isFinite(seconds) || seconds === this.lastSavedSecond || seconds % 5 !== 0) return;
     if (!Number.isFinite(this.media().duration) || this.media().duration - seconds < 15) return;
@@ -893,6 +952,7 @@ export class SecureStreamPlayer {
     this.noticeTimer=window.setTimeout(()=>{if(this.notice.textContent===message)this.notice.textContent='';},3000);
   }
   private async tryPlay(): Promise<void> {
+    if (this.awaitingResumeChoice || this.pendingResumeSeek) return;
     try { await this.media().play(); } catch { this.showNotice('Press play to start playback.'); }
   }
 
@@ -907,6 +967,7 @@ export class SecureStreamPlayer {
     this.showNotice('View: ' + this.displayMode.selectedOptions[0]?.textContent);
   }
   public togglePlay(): void {
+    if (this.awaitingResumeChoice) { this.resumeDialog.querySelector<HTMLButtonElement>('[data-resume="continue"]')!.focus(); return; }
     if (this.media().paused) void this.tryPlay();
     else this.media().pause();
   }
@@ -925,8 +986,31 @@ export class SecureStreamPlayer {
     this.watermarkToggle.checked = enabled;
     this.showNotice(enabled ? 'Watermark enabled' : 'Watermark disabled');
   }
+  private readonly onViewportKeyDown = (event: KeyboardEvent): void => {
+    if (this.viewportFullscreen && event.key === 'Escape') {
+      event.preventDefault();
+      this.exitViewportFullscreen();
+    }
+  };
+  private enterViewportFullscreen(): void {
+    if (this.viewportFullscreen) return;
+    this.root.classList.add('ssp-viewport-fullscreen');
+    document.documentElement.classList.add('ssp-viewport-lock');
+    this.viewportFullscreen = true;
+    this.revealControls();
+  }
+  private exitViewportFullscreen(): void {
+    if (!this.viewportFullscreen) return;
+    this.root.classList.remove('ssp-viewport-fullscreen');
+    document.documentElement.classList.remove('ssp-viewport-lock');
+    this.viewportFullscreen = false;
+    this.revealControls();
+  }
   public async toggleFullscreen(): Promise<void> {
+    if (this.viewportFullscreen) { this.exitViewportFullscreen(); return; }
     if(this.universal){
+      // iPhone only fullscreens native <video>, not a WebCodecs canvas. Use an in-page viewport mode.
+      if (/iPhone|iPod/i.test(navigator.userAgent)) { this.enterViewportFullscreen(); return; }
       try {
         // Fullscreen the SecureStream shell first so its own audio, captions and seek controls stay visible.
         if(document.fullscreenElement===this.root){await document.exitFullscreen();return;}
@@ -941,7 +1025,7 @@ export class SecureStreamPlayer {
           await this.universal.requestFullscreen();
           this.universalFullscreenRequested=true;
         }
-      }catch{this.showNotice('Fullscreen is unavailable for this media on this device.');}
+      }catch{this.enterViewportFullscreen();}
       return;
     }
     const appleVideo = this.video as AppleVideo;
@@ -1031,6 +1115,8 @@ export class SecureStreamPlayer {
     }
   }
   public destroy(): void {
+    this.exitViewportFullscreen();
+    document.removeEventListener('keydown', this.onViewportKeyDown);
     this.universalDestroyed = true;
     (this.universal as (HTMLElement & {destroy?:()=>void}) | undefined)?.destroy?.();
     this.universal?.remove();

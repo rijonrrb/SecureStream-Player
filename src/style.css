@@ -134,3 +134,32 @@
   .ssp-primary-buttons [data-action="next-item"] { min-width:25px; }
   .ssp-primary-buttons .ssp-time { font-size:8px; }
 }
+
+
+/* iPhone WebKit does not expose standard fullscreen for canvas/element players.
+   This is a safe in-page viewport expansion, not native video fullscreen. */
+html.ssp-viewport-lock { overflow:hidden!important; }
+.ssp-player.ssp-viewport-fullscreen {
+  position:fixed!important; inset:0!important; top:0!important; left:0!important;
+  width:100vw!important; height:100dvh!important; max-width:none!important;
+  margin:0!important; border:0!important; z-index:2147483646!important;
+}
+.ssp-player.ssp-viewport-fullscreen .ssp-stage { height:100%; aspect-ratio:auto; }
+.ssp-player.ssp-viewport-fullscreen .ssp-top { padding-top:max(10px, env(safe-area-inset-top)); }
+.ssp-player.ssp-viewport-fullscreen .ssp-bottom { padding-bottom:max(10px, env(safe-area-inset-bottom)); }
+.ssp-resume {
+  position:absolute; z-index:15; left:50%; top:50%; transform:translate(-50%,-50%);
+  width:min(340px,calc(100% - 24px)); padding:18px; border:1px solid #555;
+  background:rgba(10,10,10,.97); box-shadow:0 8px 36px #000b;
+  font-family:'Space Grotesk',system-ui,sans-serif; color:white;
+}
+.ssp-resume strong { display:block; font-size:14px; color:var(--ssp-accent); letter-spacing:.075em; }
+.ssp-resume p { margin:9px 0 15px; line-height:1.45; font-size:12px; color:#ddd; }
+.ssp-resume-actions { display:flex; gap:8px; flex-wrap:wrap; }
+.ssp-resume-actions button {
+  flex:1 1 125px; cursor:pointer; padding:11px 12px; min-height:44px;
+  background:var(--ssp-accent); color:#111; border:1px solid var(--ssp-accent);
+  border-radius:0; font-size:12px; font-weight:700;
+}
+.ssp-resume-actions button[data-resume="restart"] { background:transparent; color:#fff; border-color:#888; }
+.ssp-resume[hidden] { display:none!important; }
