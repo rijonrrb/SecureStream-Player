@@ -5,3 +5,8 @@
 .ssp-player[data-display="ratio-16-9"] .ssp-video { object-fit:cover; clip-path:none; }
 .ssp-player[data-display="ratio-4-3"] .ssp-video { object-fit:cover; clip-path:inset(0 12.5% 0 12.5%); }
 .ssp-player[data-display="ratio-21-9"] .ssp-video { object-fit:cover; clip-path:inset(12% 0 12% 0); }
+
+/* Original-container canvas uses Movi's objectfit attribute; aspect presets mask within the fixed frame. */
+.ssp-player.ssp-universal[data-display="ratio-16-9"] movi-player { clip-path:none; }
+.ssp-player.ssp-universal[data-display="ratio-4-3"] movi-player { clip-path:inset(0 12.5% 0 12.5%); }
+.ssp-player.ssp-universal[data-display="ratio-21-9"] movi-player { clip-path:inset(12% 0 12% 0); }

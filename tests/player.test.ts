@@ -247,6 +247,91 @@ describe('SecureStreamPlayer', () => {
     delete (HTMLVideoElement.prototype as HTMLVideoElement & {webkitEnterFullscreen?:()=>void}).webkitEnterFullscreen;
   });
 
+  it('uses iOS WebKit Picture-in-Picture directly and exits on the next tap', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0) AppleWebKit/605.1.15');
+    player = setup('ios-pip');
+    const video = host.querySelector('video')! as HTMLVideoElement & {
+      webkitPresentationMode?: string;
+      webkitSetPresentationMode?: (mode: string) => void;
+      webkitSupportsPresentationMode?: (mode: string) => boolean;
+    };
+    const setMode = vi.fn((mode: string) => { video.webkitPresentationMode = mode; });
+    video.webkitSetPresentationMode = setMode;
+    video.webkitSupportsPresentationMode = vi.fn(() => true);
+    const standard = vi.fn().mockResolvedValue(undefined);
+    video.requestPictureInPicture = standard;
+    await player.togglePictureInPicture();
+    expect(setMode).toHaveBeenLastCalledWith('picture-in-picture');
+    await player.togglePictureInPicture();
+    expect(setMode).toHaveBeenLastCalledWith('inline');
+    expect(standard).not.toHaveBeenCalled();
+  });
+
+  it('uses standard Picture-in-Picture when available and WebKit fallback on desktop Safari', async () => {
+    player = setup('desktop-pip');
+    const video = host.querySelector('video')! as HTMLVideoElement & {
+      webkitSetPresentationMode?: (mode: string) => void;
+      webkitSupportsPresentationMode?: (mode: string) => boolean;
+    };
+    const standard = vi.fn().mockResolvedValue(undefined);
+    video.requestPictureInPicture = standard;
+    await player.togglePictureInPicture();
+    expect(standard).toHaveBeenCalledOnce();
+    delete (video as any).requestPictureInPicture;
+    const webkit = vi.fn();
+    video.webkitSetPresentationMode = webkit;
+    video.webkitSupportsPresentationMode = vi.fn(() => true);
+    await player.togglePictureInPicture();
+    expect(webkit).toHaveBeenCalledWith('picture-in-picture');
+  });
+
+  it('shows episode buttons only for playlists and invokes navigation callbacks', () => {
+    const previous=vi.fn(), next=vi.fn(), onEnded=vi.fn();
+    player = new SecureStreamPlayer({
+      container:host, id:'series-episode', src:'https://example.org/video.mp4',
+      playlist:{previous,next}, onEnded,
+    });
+    const prevButton=host.querySelector<HTMLButtonElement>('[data-action="previous-item"]')!;
+    const nextButton=host.querySelector<HTMLButtonElement>('[data-action="next-item"]')!;
+    expect(prevButton.hidden).toBe(false);
+    expect(nextButton.hidden).toBe(false);
+    prevButton.click();
+    nextButton.click();
+    expect(previous).toHaveBeenCalledOnce();
+    expect(next).toHaveBeenCalledOnce();
+    host.querySelector('video')!.dispatchEvent(new Event('ended'));
+    expect(onEnded).toHaveBeenCalledOnce();
+  });
+  it('keeps episode buttons hidden for standalone movies', () => {
+    player=setup('movie-no-playlist');
+    expect(host.querySelector<HTMLButtonElement>('[data-action="previous-item"]')!.hidden).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('[data-action="next-item"]')!.hidden).toBe(true);
+  });
+
+  it('routes original-container fullscreen, PiP and display modes through Movi APIs', async () => {
+    player=setup('movi-playback');
+    const movi=document.createElement('movi-player') as any;
+    movi.pause=vi.fn();
+    movi.currentTime=0;
+    movi.duration=120;
+    movi.requestFullscreen=vi.fn().mockResolvedValue(undefined);
+    movi.exitFullscreen=vi.fn();
+    movi.requestPictureInPicture=vi.fn().mockResolvedValue(undefined);
+    (player as any).universal=movi;
+    player.setDisplayMode('fill');
+    expect(movi.getAttribute('objectfit')).toBe('cover');
+    player.setDisplayMode('stretch');
+    expect(movi.getAttribute('objectfit')).toBe('fill');
+    player.setDisplayMode('fit');
+    expect(movi.getAttribute('objectfit')).toBe('contain');
+    await player.toggleFullscreen();
+    expect(movi.requestFullscreen).toHaveBeenCalledOnce();
+    await player.toggleFullscreen();
+    expect(movi.exitFullscreen).toHaveBeenCalledOnce();
+    await player.togglePictureInPicture();
+    expect(movi.requestPictureInPicture).toHaveBeenCalledOnce();
+  });
+
   it('switches browser-exposed native MP4 audio tracks independently', () => {
     const nativeAudio = [
       { language:'en', label:'English', enabled:true },
