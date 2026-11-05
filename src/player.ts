@@ -628,7 +628,11 @@ export class SecureStreamPlayer {
       this.universal!.muted = this.video.muted;
       this.universal!.playbackRate = this.video.playbackRate;
       const updateTracks = () => { this.refreshAudio(); this.refreshCaptions(); };
-      this.universalTrackTimer = window.setInterval(updateTracks, 1300);
+      // Track discovery is not frame-critical. Avoid repeated DOM/track refresh while paused or hidden.
+      this.universalTrackTimer = window.setInterval(() => {
+        if (!el.isConnected || document.hidden || el.paused) return;
+        updateTracks();
+      }, 3000);
       el.addEventListener('loadedmetadata', () => {
         this.restoreUniversalPosition();
         if (this.options.autoPlay && !this.awaitingResumeChoice) void this.tryPlay();
