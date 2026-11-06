@@ -630,7 +630,7 @@ export class SecureStreamPlayer {
       const updateTracks = () => { this.refreshAudio(); this.refreshCaptions(); };
       // Track discovery is not frame-critical. Avoid repeated DOM/track refresh while paused or hidden.
       this.universalTrackTimer = window.setInterval(() => {
-        if (!el.isConnected || document.hidden || el.paused) return;
+        if (!el.isConnected || document.hidden || (el as HTMLElement & { paused?: boolean }).paused === true) return;
         updateTracks();
       }, 3000);
       el.addEventListener('loadedmetadata', () => {
