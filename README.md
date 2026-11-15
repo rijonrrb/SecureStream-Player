@@ -2,7 +2,7 @@
 
 **A reusable, framework-agnostic video player for modern web applications.**
 
-[Live Demo](https://rijonrrb.github.io/SecureStream-Player/) · [Source Code](https://github.com/rijonrrb/SecureStream-Player) · [MIT License](LICENSE)
+[Live Demo](https://rijonrrb.github.io/SecureStream-Player/) · [MIT License](LICENSE)
 
 [![CI](https://github.com/rijonrrb/SecureStream-Player/actions/workflows/ci.yml/badge.svg)](https://github.com/rijonrrb/SecureStream-Player/actions/workflows/ci.yml) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![License](https://img.shields.io/badge/License-MIT-blue)
 
